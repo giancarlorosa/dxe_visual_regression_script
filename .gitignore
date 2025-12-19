@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Test artifacts
+test-results/
+reports/
+baselines/
+screenshots/
+diffs/
+.scenarios-cache.json
+report.html
+
+# Config (contains sensitive endpoint/token)
+.vrtrc.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Playwright
+playwright/.cache/

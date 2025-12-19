@@ -1,0 +1,62 @@
+{
+  "name": "playwright-visual-regression",
+  "version": "1.0.0",
+  "description": "Visual regression testing tool using Playwright with API-driven scenario configuration",
+  "main": "dist/index.js",
+  "bin": {
+    "vrt": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "vrt": "node dist/cli.js",
+    "vrt:init": "node dist/cli.js init",
+    "vrt:test-connection": "node dist/cli.js test-connection",
+    "vrt:list": "node dist/cli.js list",
+    "vrt:generate-baseline": "node dist/cli.js generate-baseline",
+    "vrt:run-tests": "node dist/cli.js run-tests",
+    "vrt:run-tests:headed": "node dist/cli.js run-tests --headed",
+    "vrt:update-baseline": "node dist/cli.js run-tests --update-baseline",
+    "vrt:generate-baseline:headed": "node dist/cli.js generate-baseline --headed",
+    "vrt:report": "node serve-report.js",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "baseline": "playwright test --update-snapshots",
+    "baseline:headed": "playwright test --update-snapshots --headed",
+    "report": "node serve-report.js",
+    "test-connection": "node dist/cli.js test-connection",
+    "generate-baseline": "node dist/cli.js generate-baseline",
+    "run-tests": "node dist/cli.js run-tests",
+    "lint": "eslint src/**/*.ts"
+  },
+  "keywords": [
+    "playwright",
+    "visual-regression",
+    "testing",
+    "screenshot",
+    "automation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@playwright/test": "^1.40.0",
+    "axios": "^1.6.0",
+    "chalk": "^4.1.2",
+    "commander": "^11.1.0",
+    "dotenv": "^16.3.1",
+    "ora": "^5.4.1",
+    "pixelmatch": "^5.3.0",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/pixelmatch": "^5.2.6",
+    "@types/pngjs": "^6.0.4",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

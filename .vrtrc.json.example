@@ -1,0 +1,23 @@
+{
+  "endpoint": "https://your-site.com/api/vrt/pages",
+  "token": "",
+  "insecure": false,
+  "outputDir": "./screenshots",
+  "baselineDir": "./baselines",
+  "diffDir": "./diffs",
+  "comparison": {
+    "threshold": 0.1,
+    "maxDiffPixels": 100,
+    "maxDiffPixelRatio": 0.01
+  },
+  "playwright": {
+    "headless": true,
+    "timeout": 30000,
+    "navigationTimeout": 30000,
+    "screenshotTimeout": 10000
+  },
+  "retries": {
+    "maxRetries": 2,
+    "retryDelay": 1000
+  }
+}
