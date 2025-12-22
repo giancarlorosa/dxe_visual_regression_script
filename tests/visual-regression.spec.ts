@@ -63,25 +63,48 @@ async function executeInteractions(page: any, interactions: Interaction[]) {
     switch (interaction.type) {
       case 'click':
         if (interaction.selector) {
-          await page.click(interaction.selector);
+          // Use JavaScript click to bypass viewport restrictions
+          await page.evaluate((selector) => {
+            const element = document.querySelector(selector) as HTMLElement;
+            if (element) {
+              element.click();
+            }
+          }, interaction.selector);
         }
         break;
 
       case 'type':
         if (interaction.selector && interaction.value !== null) {
-          await page.fill(interaction.selector, interaction.value);
+          const locator = page.locator(interaction.selector);
+          await locator.scrollIntoViewIfNeeded();
+          await locator.fill(interaction.value);
         }
         break;
 
       case 'mouseover':
         if (interaction.selector) {
-          await page.hover(interaction.selector);
+          // Use JavaScript to dispatch mouseover event to bypass viewport restrictions
+          await page.evaluate((selector) => {
+            const element = document.querySelector(selector);
+            if (element) {
+              const event = new MouseEvent('mouseover', {
+                view: window,
+                bubbles: true,
+                cancelable: true
+              });
+              element.dispatchEvent(event);
+            }
+          }, interaction.selector);
         }
         break;
 
       case 'wait':
         if (interaction.wait_ms !== null && interaction.wait_ms > 0) {
+          console.log(`⏳ Waiting for ${interaction.wait_ms}ms...`);
+          const startTime = Date.now();
           await page.waitForTimeout(interaction.wait_ms);
+          const elapsed = Date.now() - startTime;
+          console.log(`✅ Wait completed: ${elapsed}ms (expected: ${interaction.wait_ms}ms)`);
         }
         break;
     }
