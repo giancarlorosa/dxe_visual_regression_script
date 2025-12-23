@@ -140,8 +140,8 @@ function calculateTotalWaitTime(interactions: Interaction[], scenarioWaitMs: num
 function calculateTestTimeout(scenario: Scenario, isFullPage: boolean): number {
   const baseTimeout = 30000; // 30 seconds base
   const waitTime = calculateTotalWaitTime(scenario.interactions, scenario.wait_time_ms);
-  const lazyLoadingBuffer = isFullPage ? 15000 : 0; // 15s buffer for lazy loading when full page
-  const screenshotBuffer = 15000; // 15s buffer for screenshot retries
+  const lazyLoadingBuffer = isFullPage ? 25000 : 0; // 25s buffer for lazy loading + stability when full page
+  const screenshotBuffer = 35000; // 35s buffer for screenshot stability retries
 
   return baseTimeout + waitTime + lazyLoadingBuffer + screenshotBuffer;
 }
@@ -185,11 +185,11 @@ async function waitForAllImages(page: any): Promise<void> {
 }
 
 // Wait for page height to stabilize (no changes for multiple checks)
-async function waitForStableHeight(page: any, timeout = 5000): Promise<void> {
+async function waitForStableHeight(page: any, timeout = 10000): Promise<void> {
   let previousHeight = 0;
   let stableCount = 0;
-  const requiredStableChecks = 3;
-  const checkInterval = 200;
+  const requiredStableChecks = 5; // Increased from 3 to 5 for more confidence
+  const checkInterval = 300; // Increased from 200ms to 300ms
   const startTime = Date.now();
 
   while (Date.now() - startTime < timeout) {
@@ -198,7 +198,9 @@ async function waitForStableHeight(page: any, timeout = 5000): Promise<void> {
     if (currentHeight === previousHeight) {
       stableCount++;
       if (stableCount >= requiredStableChecks) {
-        break; // Height has been stable for required number of checks
+        // Extra wait after stability confirmed to ensure no last-moment changes
+        await page.waitForTimeout(500);
+        break;
       }
     } else {
       stableCount = 0;
@@ -264,6 +266,9 @@ test.describe('Visual Regression Tests', () => {
           // Wait for all images to finish loading
           await waitForAllImages(page);
 
+          // Wait for network to be idle (no pending requests)
+          await page.waitForLoadState('networkidle');
+
           // Wait for page height to stabilize
           await waitForStableHeight(page);
         }
@@ -279,6 +284,15 @@ test.describe('Visual Regression Tests', () => {
           fullPage: viewport.full_page && pageHeight <= maxSafeHeight,
           animations: 'disabled',
         });
+
+        // For passed tests, attach the baseline image to the report
+        const baselinePath = testInfo.snapshotPath(filename, { kind: 'screenshot' });
+        if (fs.existsSync(baselinePath)) {
+          await testInfo.attach('baseline', {
+            path: baselinePath,
+            contentType: 'image/png',
+          });
+        }
       });
     }
   }
