@@ -60,6 +60,75 @@ export class ScreenshotService {
   }
 
   /**
+   * Scroll through entire page to trigger lazy loading
+   */
+  private async triggerLazyLoading(page: Page): Promise<void> {
+    await page.evaluate(`(async () => {
+      await new Promise((resolve) => {
+        let totalHeight = 0;
+        const distance = 300;
+        const scrollDelay = 100;
+
+        const timer = setInterval(() => {
+          window.scrollBy(0, distance);
+          totalHeight += distance;
+
+          if (totalHeight >= document.body.scrollHeight) {
+            clearInterval(timer);
+            window.scrollTo(0, 0);
+            resolve();
+          }
+        }, scrollDelay);
+      });
+    })()`);
+  }
+
+  /**
+   * Wait for all images to finish loading
+   */
+  private async waitForAllImages(page: Page): Promise<void> {
+    await page.evaluate(`(async () => {
+      const images = Array.from(document.querySelectorAll('img'));
+      await Promise.all(
+        images.map((img) => {
+          if (img.complete) return Promise.resolve();
+          return new Promise((resolve) => {
+            img.addEventListener('load', () => resolve());
+            img.addEventListener('error', () => resolve());
+          });
+        })
+      );
+    })()`);
+  }
+
+  /**
+   * Wait for page height to stabilize (no changes for multiple checks)
+   */
+  private async waitForStableHeight(page: Page, timeout = 5000): Promise<void> {
+    let previousHeight = 0;
+    let stableCount = 0;
+    const requiredStableChecks = 3;
+    const checkInterval = 200;
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeout) {
+      const currentHeight = await page.evaluate('document.documentElement.scrollHeight') as number;
+
+      if (currentHeight === previousHeight) {
+        stableCount++;
+        if (stableCount >= requiredStableChecks) {
+          break; // Height has been stable for required number of checks
+        }
+      } else {
+        stableCount = 0;
+      }
+
+      previousHeight = currentHeight;
+      await page.waitForTimeout(checkInterval);
+    }
+  }
+
+  /**
    * Execute interactions on the page
    */
   private async executeInteractions(
@@ -121,10 +190,13 @@ export class ScreenshotService {
 
     this.ensureDirectoryExists(outputDir);
 
+    // Use default height of 800 when height is 0 (full-page screenshots)
+    const viewportHeight = viewport.height > 0 ? viewport.height : 800;
+
     const context: BrowserContext = await this.browser.newContext({
       viewport: {
         width: viewport.width,
-        height: viewport.height,
+        height: viewportHeight,
       },
       deviceScaleFactor: viewport.device_scale_factor,
     });
@@ -147,9 +219,21 @@ export class ScreenshotService {
         await page.waitForTimeout(scenario.wait_time_ms);
       }
 
-      // Execute interactions if in interactive mode
-      if (scenario.mode === 'interactive' && scenario.interactions.length > 0) {
+      // Execute interactions if present (both static and interactive modes)
+      if (scenario.interactions.length > 0) {
         await this.executeInteractions(page, scenario.interactions);
+      }
+
+      // Handle lazy loading for full-page screenshots
+      if (viewport.full_page) {
+        // Scroll through page to trigger lazy loading
+        await this.triggerLazyLoading(page);
+
+        // Wait for all images to finish loading
+        await this.waitForAllImages(page);
+
+        // Wait for page height to stabilize
+        await this.waitForStableHeight(page);
       }
 
       // Generate filename and full path

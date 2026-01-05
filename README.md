@@ -55,9 +55,11 @@ npm run report
 |---------|-------------|
 | `npm run test` | Run visual regression tests |
 | `npm run test:headed` | Run tests with visible browser |
+| `npm run test:failed` | Re-run only failed tests |
 | `npm run test:debug` | Run tests in debug mode |
 | `npm run baseline` | Generate/update baseline screenshots |
 | `npm run baseline:headed` | Generate baselines with visible browser |
+| `npm run baseline:failed` | Regenerate baselines only for failed scenarios |
 | `npm run report` | **Open HTML report with visual diffs** |
 
 ### CLI Utility Commands
@@ -117,6 +119,21 @@ npm run baseline
 ```
 
 This fetches scenarios from the API and captures screenshots for each scenario/viewport combination.
+
+#### Regenerating Failed Baselines
+
+If some scenarios fail during baseline generation (e.g., due to timeouts, network issues, or page errors), you can regenerate baselines **only for the failed scenarios** without re-running everything:
+
+```bash
+npm run baseline:failed
+```
+
+This command:
+1. Identifies scenarios that failed in the previous run
+2. Re-runs only those scenarios
+3. Generates/updates their baseline screenshots
+
+You can repeat this command until all baselines are successfully generated.
 
 ### 3. Run Tests
 
@@ -419,6 +436,21 @@ npm run report
 - Adjust `comparison.threshold` for more tolerance
 - Increase `comparison.maxDiffPixels` for minor differences
 - Run `npm run baseline` to refresh baselines
+
+### Baseline Generation Partially Failed
+
+**Error:** Some scenarios failed during `npm run baseline`
+
+**Solution:** Regenerate baselines only for the failed scenarios:
+```bash
+npm run baseline:failed
+```
+
+Repeat until all baselines are successfully generated. Common causes of failures:
+- Page timeouts (increase `wait_time_ms` in the scenario)
+- Network issues (check connectivity to the target URLs)
+- JavaScript errors on the page (check browser console)
+- Element not found (verify selectors in interactions)
 
 ---
 

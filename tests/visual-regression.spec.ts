@@ -63,25 +63,48 @@ async function executeInteractions(page: any, interactions: Interaction[]) {
     switch (interaction.type) {
       case 'click':
         if (interaction.selector) {
-          await page.click(interaction.selector);
+          // Use JavaScript click to bypass viewport restrictions
+          await page.evaluate((selector) => {
+            const element = document.querySelector(selector) as HTMLElement;
+            if (element) {
+              element.click();
+            }
+          }, interaction.selector);
         }
         break;
 
       case 'type':
         if (interaction.selector && interaction.value !== null) {
-          await page.fill(interaction.selector, interaction.value);
+          const locator = page.locator(interaction.selector);
+          await locator.scrollIntoViewIfNeeded();
+          await locator.fill(interaction.value);
         }
         break;
 
       case 'mouseover':
         if (interaction.selector) {
-          await page.hover(interaction.selector);
+          // Use JavaScript to dispatch mouseover event to bypass viewport restrictions
+          await page.evaluate((selector) => {
+            const element = document.querySelector(selector);
+            if (element) {
+              const event = new MouseEvent('mouseover', {
+                view: window,
+                bubbles: true,
+                cancelable: true
+              });
+              element.dispatchEvent(event);
+            }
+          }, interaction.selector);
         }
         break;
 
       case 'wait':
         if (interaction.wait_ms !== null && interaction.wait_ms > 0) {
+          console.log(`⏳ Waiting for ${interaction.wait_ms}ms...`);
+          const startTime = Date.now();
           await page.waitForTimeout(interaction.wait_ms);
+          const elapsed = Date.now() - startTime;
+          console.log(`✅ Wait completed: ${elapsed}ms (expected: ${interaction.wait_ms}ms)`);
         }
         break;
     }
@@ -98,6 +121,94 @@ function safeFilename(scenarioId: string, viewportKey: string): string {
   const safeId = scenarioId.replace(/[^a-zA-Z0-9_-]/g, '_');
   const safeViewport = viewportKey.replace(/[^a-zA-Z0-9_-]/g, '_');
   return `${safeId}__${safeViewport}.png`;
+}
+
+// Calculate total wait time from interactions
+function calculateTotalWaitTime(interactions: Interaction[], scenarioWaitMs: number): number {
+  let totalWaitMs = scenarioWaitMs || 0;
+
+  for (const interaction of interactions) {
+    if (interaction.wait_ms && interaction.wait_ms > 0) {
+      totalWaitMs += interaction.wait_ms;
+    }
+  }
+
+  return totalWaitMs;
+}
+
+// Calculate dynamic timeout for a scenario
+function calculateTestTimeout(scenario: Scenario, isFullPage: boolean): number {
+  const baseTimeout = 30000; // 30 seconds base
+  const waitTime = calculateTotalWaitTime(scenario.interactions, scenario.wait_time_ms);
+  const lazyLoadingBuffer = isFullPage ? 25000 : 0; // 25s buffer for lazy loading + stability when full page
+  const screenshotBuffer = 35000; // 35s buffer for screenshot stability retries
+
+  return baseTimeout + waitTime + lazyLoadingBuffer + screenshotBuffer;
+}
+
+// Scroll through entire page to trigger lazy loading
+async function triggerLazyLoading(page: any): Promise<void> {
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve) => {
+      let totalHeight = 0;
+      const distance = 300;
+      const scrollDelay = 100;
+
+      const timer = setInterval(() => {
+        window.scrollBy(0, distance);
+        totalHeight += distance;
+
+        if (totalHeight >= document.body.scrollHeight) {
+          clearInterval(timer);
+          window.scrollTo(0, 0); // Scroll back to top
+          resolve();
+        }
+      }, scrollDelay);
+    });
+  });
+}
+
+// Wait for all images to finish loading
+async function waitForAllImages(page: any): Promise<void> {
+  await page.evaluate(async () => {
+    const images = Array.from(document.querySelectorAll('img'));
+    await Promise.all(
+      images.map((img) => {
+        if (img.complete) return Promise.resolve();
+        return new Promise<void>((resolve) => {
+          img.addEventListener('load', () => resolve());
+          img.addEventListener('error', () => resolve());
+        });
+      })
+    );
+  });
+}
+
+// Wait for page height to stabilize (no changes for multiple checks)
+async function waitForStableHeight(page: any, timeout = 10000): Promise<void> {
+  let previousHeight = 0;
+  let stableCount = 0;
+  const requiredStableChecks = 5; // Increased from 3 to 5 for more confidence
+  const checkInterval = 300; // Increased from 200ms to 300ms
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < timeout) {
+    const currentHeight = await page.evaluate(() => document.documentElement.scrollHeight);
+
+    if (currentHeight === previousHeight) {
+      stableCount++;
+      if (stableCount >= requiredStableChecks) {
+        // Extra wait after stability confirmed to ensure no last-moment changes
+        await page.waitForTimeout(500);
+        break;
+      }
+    } else {
+      stableCount = 0;
+    }
+
+    previousHeight = currentHeight;
+    await page.waitForTimeout(checkInterval);
+  }
 }
 
 // Load scenarios
@@ -120,11 +231,16 @@ test.describe('Visual Regression Tests', () => {
         continue;
       }
 
-      test(`${scenario.title} @ ${viewport.label}`, async ({ page }) => {
-        // Set viewport
+      test(`${scenario.title} @ ${viewport.label}`, async ({ page }, testInfo) => {
+        // Set dynamic timeout based on scenario wait times
+        const dynamicTimeout = calculateTestTimeout(scenario, viewport.full_page);
+        testInfo.setTimeout(dynamicTimeout);
+
+        // Set viewport (use default height of 800 when height is 0 for full-page screenshots)
+        const viewportHeight = viewport.height > 0 ? viewport.height : 800;
         await page.setViewportSize({
           width: viewport.width,
-          height: viewport.height,
+          height: viewportHeight,
         });
 
         // Navigate to URL
@@ -137,9 +253,24 @@ test.describe('Visual Regression Tests', () => {
           await page.waitForTimeout(scenario.wait_time_ms);
         }
 
-        // Execute interactions if interactive mode
-        if (scenario.mode === 'interactive' && scenario.interactions.length > 0) {
+        // Execute interactions if present (both static and interactive modes)
+        if (scenario.interactions.length > 0) {
           await executeInteractions(page, scenario.interactions);
+        }
+
+        // Handle lazy loading for full-page screenshots
+        if (viewport.full_page) {
+          // Scroll through page to trigger lazy loading
+          await triggerLazyLoading(page);
+
+          // Wait for all images to finish loading
+          await waitForAllImages(page);
+
+          // Wait for network to be idle (no pending requests)
+          await page.waitForLoadState('networkidle');
+
+          // Wait for page height to stabilize
+          await waitForStableHeight(page);
         }
 
         // Check page height for full page screenshots
@@ -153,6 +284,15 @@ test.describe('Visual Regression Tests', () => {
           fullPage: viewport.full_page && pageHeight <= maxSafeHeight,
           animations: 'disabled',
         });
+
+        // For passed tests, attach the baseline image to the report
+        const baselinePath = testInfo.snapshotPath(filename, { kind: 'screenshot' });
+        if (fs.existsSync(baselinePath)) {
+          await testInfo.attach('baseline', {
+            path: baselinePath,
+            contentType: 'image/png',
+          });
+        }
       });
     }
   }
