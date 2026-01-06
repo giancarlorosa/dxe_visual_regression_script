@@ -156,6 +156,33 @@
       font-size: 15px;
     }
 
+    .test-url {
+      padding: 8px 16px;
+      border: 1px solid var(--border);
+      background: var(--darker);
+      color: var(--text-muted);
+      border-radius: 6px;
+      font-size: 13px;
+      text-decoration: none;
+      transition: all 0.2s;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      display: block;
+      text-align: center;
+      margin-bottom: 5px;
+    }
+
+    .test-url:hover {
+      background: var(--dark);
+      color: var(--text);
+    }
+
+    .test-url-placeholder {
+      height: 37px;
+    }
+
     .test-meta {
       color: var(--text-muted);
       font-size: 13px;
@@ -194,13 +221,21 @@
 
     .view-tabs {
       display: flex;
+      flex-direction: column;
+      align-items: center;
       gap: 8px;
       margin-bottom: 15px;
+    }
+
+    .view-tabs-buttons {
+      display: flex;
+      gap: 8px;
       flex-wrap: wrap;
       justify-content: center;
     }
 
-    .view-tabs button {
+    .view-tabs button,
+    .view-tabs-buttons button {
       padding: 8px 16px;
       border: 1px solid var(--border);
       background: var(--darker);
@@ -211,12 +246,14 @@
       transition: all 0.2s;
     }
 
-    .view-tabs button:hover {
+    .view-tabs button:hover,
+    .view-tabs-buttons button:hover {
       background: var(--dark);
       color: var(--text);
     }
 
-    .view-tabs button.active {
+    .view-tabs button.active,
+    .view-tabs-buttons button.active {
       background: var(--primary);
       color: white;
       border-color: var(--primary);
@@ -619,20 +656,26 @@
     function renderComparison(test, index) {
       return `
         <div class="view-tabs" id="view-tabs-${index}" data-test-index="${index}">
-          <button class="active" onclick="showView(${index}, 'slider')">Slider</button>
-          <button onclick="showView(${index}, 'diff')">Diff Only</button>
-          <button onclick="toggleDiffOverlay(${index})">Toggle Overlay</button>
-          <button class="hide-on-sticky" onclick="showView(${index}, 'side-by-side')">Side by Side</button>
+          ${test.url ? `<a href="${escapeHtml(test.url)}" target="_blank" class="test-url" onclick="event.stopPropagation()" title="${escapeHtml(test.url)}">${escapeHtml(test.url)}</a>` : ''}
+          <div class="view-tabs-buttons">
+            <button class="active" onclick="showView(${index}, 'diff')">Diff Only</button>
+            <button onclick="showView(${index}, 'slider')">Slider</button>
+            <button onclick="toggleDiffOverlay(${index})">Toggle Overlay</button>
+            <button class="hide-on-sticky" onclick="showView(${index}, 'side-by-side')">Side by Side</button>
+          </div>
         </div>
         <div class="view-tabs view-tabs-placeholder" id="view-tabs-placeholder-${index}">
-          <button>Slider</button>
-          <button>Diff Only</button>
-          <button>Toggle Overlay</button>
-          <button class="hide-on-sticky">Side by Side</button>
+          <div class="test-url-placeholder"></div>
+          <div class="view-tabs-buttons">
+            <button>Diff Only</button>
+            <button>Slider</button>
+            <button>Toggle Overlay</button>
+            <button class="hide-on-sticky">Side by Side</button>
+          </div>
         </div>
 
         <div class="comparison-container" id="comparison-${index}">
-          <div class="slider-view" id="slider-view-${index}">
+          <div class="slider-view" id="slider-view-${index}" style="display: none">
             <div class="slider-wrapper">
               <img class="comparison-image baseline" src="${test.baseline || ''}" alt="Baseline" onload="updateImageHeight(${index})">
               <img class="comparison-image current" src="${test.current || ''}" alt="Current">
@@ -658,7 +701,7 @@
             </div>
           </div>
 
-          <div class="diff-only" id="diff-only-${index}">
+          <div class="diff-only active" id="diff-only-${index}">
             ${test.diff ? `<img src="${test.diff}" alt="Diff">` : '<div class="no-image">No diff image available</div>'}
           </div>
         </div>
@@ -711,7 +754,8 @@
     function updateImageHeight(index) {
       const sliderView = document.getElementById(`slider-view-${index}`);
       const baseline = sliderView?.querySelector('.baseline');
-      if (sliderView && baseline) {
+      // Only update height if the element is visible (not display:none)
+      if (sliderView && baseline && sliderView.style.display !== 'none') {
         sliderView.style.height = baseline.offsetHeight + 'px';
       }
     }
@@ -782,32 +826,50 @@
       const sliderView = document.getElementById(`slider-view-${index}`);
       const sideBySide = document.getElementById(`side-by-side-${index}`);
       const diffOnly = document.getElementById(`diff-only-${index}`);
-      const container = document.getElementById(`comparison-${index}`);
+      const viewTabs = document.getElementById(`view-tabs-${index}`);
 
-      if (!sliderView || !sideBySide || !diffOnly) return;
+      if (!sliderView || !sideBySide || !diffOnly || !viewTabs) return;
 
       sliderView.style.display = view === 'slider' ? 'block' : 'none';
       sideBySide.classList.toggle('active', view === 'side-by-side');
       diffOnly.classList.toggle('active', view === 'diff');
 
-      // Update button states
-      const buttons = container.previousElementSibling.querySelectorAll('button');
+      // Re-initialize slider when switching to slider view
+      if (view === 'slider') {
+        setTimeout(() => {
+          // Recalculate height now that the element is visible
+          updateImageHeight(index);
+          setupSlider(index);
+        }, 50);  // Slightly longer timeout to ensure layout is complete
+      }
+
+      // Update button states - buttons are inside .view-tabs-buttons
+      // Order: Diff Only (0), Slider (1), Toggle Overlay (2), Side by Side (3)
+      // Skip Toggle Overlay (index 2) - it has its own toggle state
+      const buttons = viewTabs.querySelectorAll('.view-tabs-buttons button');
       buttons.forEach((btn, i) => {
-        if (i < 3) { // Only first 3 buttons are view toggles
-          btn.classList.remove('active');
-          if ((view === 'slider' && i === 0) ||
-              (view === 'side-by-side' && i === 1) ||
-              (view === 'diff' && i === 2)) {
-            btn.classList.add('active');
-          }
+        if (i === 2) return; // Skip Toggle Overlay button
+        btn.classList.remove('active');
+        if ((view === 'diff' && i === 0) ||
+            (view === 'slider' && i === 1) ||
+            (view === 'side-by-side' && i === 3)) {
+          btn.classList.add('active');
         }
       });
     }
 
     function toggleDiffOverlay(index) {
       const overlay = document.getElementById(`overlay-${index}`);
+      const viewTabs = document.getElementById(`view-tabs-${index}`);
       if (overlay) {
         overlay.classList.toggle('visible');
+        // Toggle active state on the button (index 2 is Toggle Overlay)
+        if (viewTabs) {
+          const toggleBtn = viewTabs.querySelectorAll('.view-tabs-buttons button')[2];
+          if (toggleBtn) {
+            toggleBtn.classList.toggle('active', overlay.classList.contains('visible'));
+          }
+        }
       }
     }
 

@@ -112,6 +112,7 @@ export interface FilterOptions {
 export interface TestResult {
   scenarioId: string;
   scenarioTitle: string;
+  scenarioUrl: string;
   viewport: string;
   passed: boolean;
   diffPixels?: number;
@@ -125,6 +126,7 @@ export interface TestResult {
 
 export interface ReportTestResult {
   name: string;
+  url: string;
   status: 'passed' | 'failed';
   baseline?: string;
   current?: string;

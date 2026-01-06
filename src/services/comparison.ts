@@ -217,6 +217,7 @@ export class ComparisonService {
       return {
         scenarioId,
         scenarioTitle: scenarioId,
+        scenarioUrl: '',
         viewport: viewportKey,
         passed: false,
         error: 'Baseline not found. Run generate-baseline first.',
@@ -231,6 +232,7 @@ export class ComparisonService {
       return {
         scenarioId,
         scenarioTitle: scenarioId,
+        scenarioUrl: '',
         viewport: viewportKey,
         passed: result.passed,
         diffPixels: result.diffPixels,
@@ -244,6 +246,7 @@ export class ComparisonService {
       return {
         scenarioId,
         scenarioTitle: scenarioId,
+        scenarioUrl: '',
         viewport: viewportKey,
         passed: false,
         error: error instanceof Error ? error.message : 'Unknown error',
