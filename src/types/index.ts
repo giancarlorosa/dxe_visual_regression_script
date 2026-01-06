@@ -80,6 +80,7 @@ export interface PlaywrightConfig {
   timeout: number;
   navigationTimeout: number;
   screenshotTimeout: number;
+  workers: number;
 }
 
 export interface RetryConfig {
@@ -116,9 +117,21 @@ export interface TestResult {
   diffPixels?: number;
   diffPercentage?: number;
   error?: string;
+  warning?: string;
   screenshotPath?: string;
   baselinePath?: string;
   diffPath?: string;
+}
+
+export interface ReportTestResult {
+  name: string;
+  status: 'passed' | 'failed';
+  baseline?: string;
+  current?: string;
+  diff?: string;
+  diffPixels?: number;
+  diffPercentage?: number;
+  warning?: string;
 }
 
 export interface TestRunSummary {

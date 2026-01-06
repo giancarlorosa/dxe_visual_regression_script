@@ -3,18 +3,46 @@
  * Captures baseline screenshots for all scenarios
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import chalk from 'chalk';
 import ora from 'ora';
 import { loadConfig } from '../config/loader';
 import { ApiService } from '../services/api';
 import { ScreenshotService } from '../services/screenshot';
+import { loadFailedTests, clearFailedTests } from '../services/failed-tracker';
 import { Scenario, Viewport } from '../types';
+
+/**
+ * Clean the baseline directory by removing all files
+ */
+function cleanBaselineDirectory(baselineDir: string): number {
+  if (!fs.existsSync(baselineDir)) {
+    return 0;
+  }
+
+  const files = fs.readdirSync(baselineDir);
+  let removedCount = 0;
+
+  for (const file of files) {
+    const filePath = path.join(baselineDir, file);
+    const stat = fs.statSync(filePath);
+
+    if (stat.isFile() && file.endsWith('.png')) {
+      fs.unlinkSync(filePath);
+      removedCount++;
+    }
+  }
+
+  return removedCount;
+}
 
 export interface GenerateBaselineOptions {
   config?: string;
   scenario?: string[];
   viewport?: string[];
   headed?: boolean;
+  failed?: boolean;
 }
 
 export async function generateBaseline(options: GenerateBaselineOptions): Promise<void> {
@@ -25,12 +53,32 @@ export async function generateBaseline(options: GenerateBaselineOptions): Promis
     const config = loadConfig(options.config);
     spinner.succeed('Configuration loaded');
 
+    // Handle --failed flag
+    let scenarioFilter = options.scenario;
+    let viewportFilter = options.viewport;
+    const isFailedMode = options.failed;
+
+    if (isFailedMode) {
+      const failedTests = loadFailedTests();
+      if (failedTests.length === 0) {
+        spinner.succeed('No failed tests to regenerate baselines for');
+        console.log();
+        console.log(chalk.green('All tests passed in the last run!'));
+        return;
+      }
+
+      // Extract unique scenario IDs from failed tests
+      scenarioFilter = [...new Set(failedTests.map(t => t.scenarioId))];
+      spinner.succeed(`Found ${failedTests.length} failed tests from last run`);
+      spinner.start('Fetching scenarios from API...');
+    }
+
     // Fetch scenarios from API
     spinner.start('Fetching scenarios from API...');
     const apiService = new ApiService(config);
     const payload = await apiService.fetchFilteredScenarios(
-      options.scenario,
-      options.viewport
+      scenarioFilter,
+      viewportFilter
     );
     spinner.succeed(`Fetched ${payload.meta.scenario_count} scenarios with ${payload.meta.viewport_count} viewports`);
 
@@ -81,6 +129,7 @@ export async function generateBaseline(options: GenerateBaselineOptions): Promis
     console.log(chalk.cyan(`  Scenarios: ${payload.scenarios.length}`));
     console.log(chalk.cyan(`  Viewports: ${payload.viewports.length}`));
     console.log(chalk.cyan(`  Total screenshots: ${totalScreenshots}`));
+    console.log(chalk.cyan(`  Workers: ${config.playwright.workers}`));
     console.log(chalk.cyan(`  Output directory: ${config.baselineDir}`));
 
     if (options.headed) {
@@ -88,6 +137,19 @@ export async function generateBaseline(options: GenerateBaselineOptions): Promis
     }
 
     console.log();
+
+    // Clean existing baselines (skip when using --failed to preserve other baselines)
+    if (!isFailedMode) {
+      spinner.start('Cleaning existing baselines...');
+      const removedCount = cleanBaselineDirectory(config.baselineDir);
+      if (removedCount > 0) {
+        spinner.succeed(`Removed ${removedCount} existing baseline(s)`);
+      } else {
+        spinner.succeed('Baseline directory is clean');
+      }
+    } else {
+      console.log(chalk.cyan('  (Skipping clean - only regenerating failed baselines)'));
+    }
 
     // Initialize screenshot service
     spinner.start('Initializing browser...');
@@ -155,7 +217,13 @@ export async function generateBaseline(options: GenerateBaselineOptions): Promis
       process.exit(1);
     }
 
-    console.log(chalk.green('Baselines are ready. Run "vrt run-tests" to compare against them.'));
+    // Clear failed tests file after successful baseline generation
+    if (isFailedMode) {
+      clearFailedTests();
+      console.log(chalk.green('Failed tests cleared. Run "npm run test" to verify.'));
+    } else {
+      console.log(chalk.green('Baselines are ready. Run "npm run test" to compare against them.'));
+    }
   } catch (error) {
     spinner.fail('Error');
     console.log();

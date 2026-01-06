@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Visual Regression Report</title>
+  <style>
+    :root {
+      --primary: #6366f1;
+      --success: #4ade80;
+      --danger: #f87171;
+      --warning: #fbbf24;
+      --dark: #1a1a2e;
+      --darker: #0f0f1a;
+      --light: #f8f9fa;
+      --border: #333;
+      --text: #eee;
+      --text-muted: #888;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--dark);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    header {
+      background: var(--darker);
+      padding: 20px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+
+    .summary {
+      display: flex;
+      justify-content: center;
+      gap: 30px;
+      flex-wrap: wrap;
+    }
+
+    .summary-item {
+      padding: 10px 20px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.05);
+      text-align: center;
+    }
+
+    .summary-item.passed { border-left: 4px solid var(--success); }
+    .summary-item.failed { border-left: 4px solid var(--danger); }
+    .summary-item.total { border-left: 4px solid var(--primary); }
+
+    .summary-item strong {
+      display: block;
+      font-size: 1.5rem;
+    }
+
+    .filters {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .filters button {
+      padding: 8px 20px;
+      border: 1px solid var(--border);
+      background: var(--darker);
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 6px;
+      transition: all 0.2s;
+      font-size: 14px;
+    }
+
+    .filters button:hover {
+      background: var(--dark);
+      color: var(--text);
+    }
+
+    .filters button.active {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+
+    .test-list {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .test-result {
+      background: var(--darker);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .test-result.passed { border-left: 4px solid var(--success); }
+    .test-result.failed { border-left: 4px solid var(--danger); }
+
+    .test-header {
+      padding: 15px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .test-header:hover {
+      background: rgba(255,255,255,0.03);
+    }
+
+    .test-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .status-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 14px;
+    }
+
+    .status-icon.passed { background: var(--success); color: var(--dark); }
+    .status-icon.failed { background: var(--danger); color: var(--dark); }
+
+    .test-name {
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    .test-meta {
+      color: var(--text-muted);
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .toggle-icon {
+      font-size: 18px;
+      transition: transform 0.2s;
+      color: var(--text-muted);
+    }
+
+    .test-result.expanded .toggle-icon {
+      transform: rotate(180deg);
+    }
+
+    .test-body {
+      display: none;
+      padding: 20px;
+      background: var(--dark);
+      border-top: 1px solid var(--border);
+    }
+
+    .test-result.expanded .test-body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .test-body > * {
+      width: 100%;
+      max-width: 1200px;
+    }
+
+    .view-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .view-tabs button {
+      padding: 8px 16px;
+      border: 1px solid var(--border);
+      background: var(--darker);
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 6px;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+
+    .view-tabs button:hover {
+      background: var(--dark);
+      color: var(--text);
+    }
+
+    .view-tabs button.active {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+
+    /* Slider Comparison */
+    .comparison-container {
+      position: relative;
+      width: 100%;
+      background: #222;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .slider-view {
+      position: relative;
+      min-height: 400px;
+    }
+
+    .slider-wrapper {
+      position: relative;
+      width: 100%;
+    }
+
+    .comparison-image {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      background: white;
+    }
+
+    .comparison-image.baseline {
+      position: relative;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    .comparison-image.current {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      clip-path: inset(0 0 0 50%);
+    }
+
+    .comparison-slider {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      width: 4px;
+      height: 100%;
+      background: var(--primary);
+      cursor: ew-resize;
+      z-index: 100;
+      transform: translateX(-50%);
+    }
+
+    .comparison-slider::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 40px;
+      height: 40px;
+      background: var(--primary);
+      border-radius: 50%;
+      border: 3px solid white;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+
+    .comparison-slider::after {
+      content: '\u2194';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 18px;
+      font-weight: bold;
+      z-index: 1;
+    }
+
+    .slider-label {
+      position: absolute;
+      bottom: 15px;
+      padding: 6px 12px;
+      background: rgba(0,0,0,0.8);
+      color: white;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      z-index: 50;
+    }
+
+    .slider-label.left { left: 15px; }
+    .slider-label.right { right: 15px; }
+
+    /* Side by Side */
+    .side-by-side {
+      display: none;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      justify-items: center;
+    }
+
+    .side-by-side.active {
+      display: grid;
+    }
+
+    .side-by-side .image-panel {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .side-by-side .image-panel h4 {
+      margin-bottom: 10px;
+      color: var(--text-muted);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .side-by-side img {
+      max-width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: white;
+      display: block;
+      margin: 0 auto;
+    }
+
+    .side-by-side .no-image {
+      padding: 60px 20px;
+      background: var(--darker);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 13px;
+      border: 1px dashed var(--border);
+    }
+
+    /* Diff Only View */
+    .diff-only {
+      display: none;
+      text-align: center;
+    }
+
+    .diff-only.active {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .diff-only img {
+      max-width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: white;
+      display: block;
+      margin: 0 auto;
+    }
+
+    /* Diff Overlay */
+    .diff-overlay {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      max-width: 100%;
+      height: auto;
+      opacity: 0.6;
+      mix-blend-mode: multiply;
+      pointer-events: none;
+      display: none;
+    }
+
+    .diff-overlay.visible {
+      display: block;
+    }
+
+    /* Keyboard hint */
+    .keyboard-hint {
+      margin-top: 15px;
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .keyboard-hint kbd {
+      background: var(--darker);
+      color: var(--text);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-family: monospace;
+      border: 1px solid var(--border);
+      margin: 0 2px;
+    }
+
+    /* Warning badge */
+    .warning-badge {
+      background: var(--warning);
+      color: var(--dark);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .side-by-side {
+        grid-template-columns: 1fr;
+      }
+
+      .summary {
+        gap: 15px;
+      }
+
+      .test-meta {
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 5px;
+      }
+    }
+
+    /* Loading state for images */
+    .comparison-image, .side-by-side img, .diff-only img {
+      transition: opacity 0.3s;
+    }
+
+    .comparison-image[data-loading="true"],
+    .side-by-side img[data-loading="true"],
+    .diff-only img[data-loading="true"] {
+      opacity: 0.5;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>Visual Regression Report</h1>
+      <div class="summary" id="summary">
+        <!-- Filled by JavaScript -->
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="filters">
+      <button class="active" data-filter="all">All</button>
+      <button data-filter="failed">Failed Only</button>
+      <button data-filter="passed">Passed Only</button>
+    </div>
+
+    <div class="test-list" id="testList">
+      <!-- Filled by JavaScript -->
+    </div>
+  </main>
+
+  <script>
+    // Test results data - injected by report generator
+    const testResults = /* TEST_RESULTS_PLACEHOLDER */[];
+
+    // State
+    let activeFilter = 'all';
+    let expandedTests = new Set();
+    let activeSlider = null;
+
+    // Initialize
+    function init() {
+      renderSummary();
+      renderTests();
+      setupFilters();
+      setupKeyboardNavigation();
+    }
+
+    function renderSummary() {
+      const passed = testResults.filter(t => t.status === 'passed').length;
+      const failed = testResults.filter(t => t.status === 'failed').length;
+      const total = testResults.length;
+
+      document.getElementById('summary').innerHTML = `
+        <div class="summary-item total">
+          <strong>${total}</strong>
+          <span>Total Tests</span>
+        </div>
+        <div class="summary-item passed">
+          <strong>${passed}</strong>
+          <span>Passed</span>
+        </div>
+        <div class="summary-item failed">
+          <strong>${failed}</strong>
+          <span>Failed</span>
+        </div>
+      `;
+    }
+
+    function renderTests() {
+      const filtered = testResults.filter(t => {
+        if (activeFilter === 'all') return true;
+        return t.status === activeFilter;
+      });
+
+      const container = document.getElementById('testList');
+      container.innerHTML = filtered.map((test, index) => {
+        const originalIndex = testResults.indexOf(test);
+        return `
+          <div class="test-result ${test.status} ${expandedTests.has(originalIndex) ? 'expanded' : ''}"
+               data-index="${originalIndex}">
+            <div class="test-header" onclick="toggleTest(${originalIndex})">
+              <div class="test-title">
+                <span class="status-icon ${test.status}">
+                  ${test.status === 'passed' ? '\u2713' : '\u2717'}
+                </span>
+                <span class="test-name">${escapeHtml(test.name)}</span>
+                ${test.warning ? '<span class="warning-badge">Dimension Mismatch</span>' : ''}
+              </div>
+              <div class="test-meta">
+                ${test.status === 'failed' && test.diffPixels !== undefined ?
+                  `<span>${test.diffPixels.toLocaleString()} pixels (${test.diffPercentage?.toFixed(2) || 0}%)</span>` :
+                  '<span>No differences</span>'}
+                <span class="toggle-icon">\u25BC</span>
+              </div>
+            </div>
+            <div class="test-body">
+              ${test.status === 'failed' ? renderComparison(test, originalIndex) : renderPassedView(test, originalIndex)}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Re-setup sliders for expanded tests
+      expandedTests.forEach(index => {
+        setTimeout(() => setupSlider(index), 0);
+      });
+    }
+
+    function renderComparison(test, index) {
+      return `
+        <div class="view-tabs">
+          <button class="active" onclick="showView(${index}, 'slider')">Slider</button>
+          <button onclick="showView(${index}, 'side-by-side')">Side by Side</button>
+          <button onclick="showView(${index}, 'diff')">Diff Only</button>
+          <button onclick="toggleDiffOverlay(${index})">Toggle Overlay</button>
+        </div>
+
+        <div class="comparison-container" id="comparison-${index}">
+          <div class="slider-view" id="slider-view-${index}">
+            <div class="slider-wrapper">
+              <img class="comparison-image baseline" src="${test.baseline || ''}" alt="Baseline" onload="updateImageHeight(${index})">
+              <img class="comparison-image current" src="${test.current || ''}" alt="Current">
+              ${test.diff ? `<img class="diff-overlay" id="overlay-${index}" src="${test.diff}" alt="Diff">` : ''}
+              <div class="comparison-slider" id="slider-${index}"></div>
+              <span class="slider-label left">Baseline</span>
+              <span class="slider-label right">Current</span>
+            </div>
+          </div>
+
+          <div class="side-by-side" id="side-by-side-${index}">
+            <div class="image-panel">
+              <h4>Baseline</h4>
+              ${test.baseline ? `<img src="${test.baseline}" alt="Baseline">` : '<div class="no-image">No baseline</div>'}
+            </div>
+            <div class="image-panel">
+              <h4>Current</h4>
+              ${test.current ? `<img src="${test.current}" alt="Current">` : '<div class="no-image">No screenshot</div>'}
+            </div>
+            <div class="image-panel">
+              <h4>Diff</h4>
+              ${test.diff ? `<img src="${test.diff}" alt="Diff">` : '<div class="no-image">No diff</div>'}
+            </div>
+          </div>
+
+          <div class="diff-only" id="diff-only-${index}">
+            ${test.diff ? `<img src="${test.diff}" alt="Diff">` : '<div class="no-image">No diff image available</div>'}
+          </div>
+        </div>
+
+        <div class="keyboard-hint">
+          <kbd>\u2190</kbd> <kbd>\u2192</kbd> Move slider |
+          <kbd>D</kbd> Toggle diff overlay
+        </div>
+      `;
+    }
+
+    function renderPassedView(test, index) {
+      return `
+        <div class="side-by-side active">
+          <div class="image-panel">
+            <h4>Baseline</h4>
+            ${test.baseline ? `<img src="${test.baseline}" alt="Baseline">` : '<div class="no-image">No baseline</div>'}
+          </div>
+          <div class="image-panel">
+            <h4>Current</h4>
+            ${test.current ? `<img src="${test.current}" alt="Current">` : '<div class="no-image">No screenshot</div>'}
+          </div>
+          <div class="image-panel">
+            <h4>Diff</h4>
+            <div class="no-image">No differences (identical)</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function toggleTest(index) {
+      if (expandedTests.has(index)) {
+        expandedTests.delete(index);
+        activeSlider = null;
+      } else {
+        expandedTests.add(index);
+        activeSlider = index;
+        setTimeout(() => setupSlider(index), 0);
+      }
+      renderTests();
+    }
+
+    function updateImageHeight(index) {
+      const sliderView = document.getElementById(`slider-view-${index}`);
+      const baseline = sliderView?.querySelector('.baseline');
+      if (sliderView && baseline) {
+        sliderView.style.height = baseline.offsetHeight + 'px';
+      }
+    }
+
+    function setupSlider(index) {
+      const slider = document.getElementById(`slider-${index}`);
+      const currentImage = document.querySelector(`#slider-view-${index} .current`);
+      const container = document.getElementById(`comparison-${index}`);
+      const sliderView = document.getElementById(`slider-view-${index}`);
+      const sliderWrapper = sliderView?.querySelector('.slider-wrapper');
+
+      if (!slider || !currentImage || !container || !sliderView || !sliderWrapper) return;
+
+      let isDragging = false;
+      let sliderPosition = 50;
+
+      const updateSlider = (percentage) => {
+        sliderPosition = Math.max(0, Math.min(100, percentage));
+        slider.style.left = `${sliderPosition}%`;
+        currentImage.style.clipPath = `inset(0 0 0 ${sliderPosition}%)`;
+      };
+
+      // Store for keyboard navigation
+      container._sliderPosition = sliderPosition;
+      container._updateSlider = updateSlider;
+
+      slider.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        activeSlider = index;
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const rect = sliderWrapper.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const percentage = (x / rect.width) * 100;
+        updateSlider(percentage);
+        container._sliderPosition = percentage;
+      });
+
+      document.addEventListener('mouseup', () => {
+        isDragging = false;
+      });
+
+      // Touch support
+      slider.addEventListener('touchstart', (e) => {
+        isDragging = true;
+        activeSlider = index;
+        e.preventDefault();
+      });
+
+      document.addEventListener('touchmove', (e) => {
+        if (!isDragging) return;
+        const rect = sliderWrapper.getBoundingClientRect();
+        const x = e.touches[0].clientX - rect.left;
+        const percentage = (x / rect.width) * 100;
+        updateSlider(percentage);
+        container._sliderPosition = percentage;
+      });
+
+      document.addEventListener('touchend', () => {
+        isDragging = false;
+      });
+    }
+
+    function showView(index, view) {
+      const sliderView = document.getElementById(`slider-view-${index}`);
+      const sideBySide = document.getElementById(`side-by-side-${index}`);
+      const diffOnly = document.getElementById(`diff-only-${index}`);
+      const container = document.getElementById(`comparison-${index}`);
+
+      if (!sliderView || !sideBySide || !diffOnly) return;
+
+      sliderView.style.display = view === 'slider' ? 'block' : 'none';
+      sideBySide.classList.toggle('active', view === 'side-by-side');
+      diffOnly.classList.toggle('active', view === 'diff');
+
+      // Update button states
+      const buttons = container.previousElementSibling.querySelectorAll('button');
+      buttons.forEach((btn, i) => {
+        if (i < 3) { // Only first 3 buttons are view toggles
+          btn.classList.remove('active');
+          if ((view === 'slider' && i === 0) ||
+              (view === 'side-by-side' && i === 1) ||
+              (view === 'diff' && i === 2)) {
+            btn.classList.add('active');
+          }
+        }
+      });
+    }
+
+    function toggleDiffOverlay(index) {
+      const overlay = document.getElementById(`overlay-${index}`);
+      if (overlay) {
+        overlay.classList.toggle('visible');
+      }
+    }
+
+    function setupFilters() {
+      document.querySelectorAll('.filters button').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.filters button').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          activeFilter = btn.dataset.filter;
+          renderTests();
+        });
+      });
+    }
+
+    function setupKeyboardNavigation() {
+      document.addEventListener('keydown', (e) => {
+        if (activeSlider === null) return;
+
+        const container = document.getElementById(`comparison-${activeSlider}`);
+        if (!container || !container._updateSlider) return;
+
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          const newPos = container._sliderPosition - 5;
+          container._updateSlider(newPos);
+          container._sliderPosition = newPos;
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          const newPos = container._sliderPosition + 5;
+          container._updateSlider(newPos);
+          container._sliderPosition = newPos;
+        } else if (e.key === 'd' || e.key === 'D') {
+          e.preventDefault();
+          toggleDiffOverlay(activeSlider);
+        }
+      });
+    }
+
+    // Auto-expand failed tests on load
+    testResults.forEach((test, index) => {
+      if (test.status === 'failed') {
+        expandedTests.add(index);
+        if (activeSlider === null) {
+          activeSlider = index;
+        }
+      }
+    });
+
+    // Start
+    init();
+  </script>
+</body>
+</html>

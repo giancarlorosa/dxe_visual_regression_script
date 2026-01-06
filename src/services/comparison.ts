@@ -1,12 +1,11 @@
 /**
  * Comparison Service
- * Handles image comparison using pixelmatch
+ * Handles image comparison using ODiff
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { PNG } from 'pngjs';
-import pixelmatch from 'pixelmatch';
+import { compare } from 'odiff-bin';
 import { VrtConfig, TestResult } from '../types';
 
 export interface ComparisonResult {
@@ -15,6 +14,8 @@ export interface ComparisonResult {
   diffPercentage: number;
   totalPixels: number;
   diffPath?: string;
+  error?: string;
+  warning?: string;
 }
 
 export class ComparisonService {
@@ -34,15 +35,7 @@ export class ComparisonService {
   }
 
   /**
-   * Load a PNG image from disk
-   */
-  private loadImage(imagePath: string): PNG {
-    const buffer = fs.readFileSync(imagePath);
-    return PNG.sync.read(buffer);
-  }
-
-  /**
-   * Compare two images and return the result
+   * Compare two images using ODiff and return the result
    */
   async compare(
     baselinePath: string,
@@ -57,70 +50,126 @@ export class ComparisonService {
         diffPercentage: 100,
         totalPixels: 0,
         diffPath: undefined,
+        error: 'Baseline not found',
       };
     }
 
     // Check if screenshot exists
     if (!fs.existsSync(screenshotPath)) {
-      throw new Error(`Screenshot not found: ${screenshotPath}`);
-    }
-
-    // Load images
-    const baseline = this.loadImage(baselinePath);
-    const screenshot = this.loadImage(screenshotPath);
-
-    // Check dimensions match
-    if (baseline.width !== screenshot.width || baseline.height !== screenshot.height) {
       return {
         passed: false,
         diffPixels: -1,
         diffPercentage: 100,
-        totalPixels: baseline.width * baseline.height,
+        totalPixels: 0,
         diffPath: undefined,
+        error: 'Screenshot not found',
       };
     }
 
-    const totalPixels = baseline.width * baseline.height;
-
-    // Create diff image if path provided
-    let diffImage: PNG | null = null;
+    // Ensure diff directory exists if diffPath provided
     if (diffPath) {
-      diffImage = new PNG({ width: baseline.width, height: baseline.height });
-    }
-
-    // Perform comparison
-    const diffPixels = pixelmatch(
-      baseline.data,
-      screenshot.data,
-      diffImage?.data || null,
-      baseline.width,
-      baseline.height,
-      {
-        threshold: this.config.comparison.threshold,
-        includeAA: false, // Ignore anti-aliasing differences
-      }
-    );
-
-    const diffPercentage = (diffPixels / totalPixels) * 100;
-
-    // Determine if test passed based on configuration
-    const passed = this.evaluatePass(diffPixels, diffPercentage, totalPixels);
-
-    // Save diff image if provided and there are differences
-    let savedDiffPath: string | undefined;
-    if (diffImage && diffPath && diffPixels > 0) {
       this.ensureDirectoryExists(path.dirname(diffPath));
-      fs.writeFileSync(diffPath, PNG.sync.write(diffImage));
-      savedDiffPath = diffPath;
     }
 
-    return {
-      passed,
-      diffPixels,
-      diffPercentage,
-      totalPixels,
-      diffPath: savedDiffPath,
-    };
+    try {
+      // Use ODiff for comparison
+      const result = await compare(
+        baselinePath,
+        screenshotPath,
+        diffPath || '', // ODiff requires a diff path, use empty string if not needed
+        {
+          threshold: this.config.comparison.threshold,
+          failOnLayoutDiff: true, // Return layout-diff reason for dimension mismatches
+          antialiasing: true, // Reduce font rendering false positives
+        }
+      );
+
+      // Handle matching images
+      if (result.match) {
+        // Clean up diff file if it was created but images match
+        if (diffPath && fs.existsSync(diffPath)) {
+          fs.unlinkSync(diffPath);
+        }
+        return {
+          passed: true,
+          diffPixels: 0,
+          diffPercentage: 0,
+          totalPixels: 0,
+          diffPath: undefined,
+        };
+      }
+
+      // Handle layout differences (dimension mismatch)
+      if (result.reason === 'layout-diff') {
+        // Clean up diff file if created
+        if (diffPath && fs.existsSync(diffPath)) {
+          fs.unlinkSync(diffPath);
+        }
+        return {
+          passed: true,
+          diffPixels: 0,
+          diffPercentage: 0,
+          totalPixels: 0,
+          diffPath: undefined,
+          warning: 'dimension-mismatch',
+        };
+      }
+
+      // Handle file not exists error
+      if (result.reason === 'file-not-exists') {
+        return {
+          passed: false,
+          diffPixels: -1,
+          diffPercentage: 100,
+          totalPixels: 0,
+          diffPath: undefined,
+          error: `File not found: ${result.file}`,
+        };
+      }
+
+      // Handle pixel differences (reason === 'pixel-diff')
+      const diffPixels = result.diffCount;
+      const diffPercentage = result.diffPercentage;
+
+      // If no differences, clean up and pass
+      if (diffPixels === 0) {
+        if (diffPath && fs.existsSync(diffPath)) {
+          fs.unlinkSync(diffPath);
+        }
+        return {
+          passed: true,
+          diffPixels: 0,
+          diffPercentage: 0,
+          totalPixels: 0,
+          diffPath: undefined,
+        };
+      }
+
+      // Calculate total pixels from diffCount and diffPercentage
+      const totalPixels = diffPercentage > 0
+        ? Math.round(diffPixels / (diffPercentage / 100))
+        : 0;
+
+      // Determine if test passed based on configuration thresholds
+      const passed = this.evaluatePass(diffPixels, diffPercentage, totalPixels);
+
+      return {
+        passed,
+        diffPixels,
+        diffPercentage,
+        totalPixels,
+        diffPath: diffPath && fs.existsSync(diffPath) ? diffPath : undefined,
+      };
+    } catch (error) {
+      return {
+        passed: false,
+        diffPixels: -1,
+        diffPercentage: 100,
+        totalPixels: 0,
+        diffPath: undefined,
+        error: error instanceof Error ? error.message : 'Unknown comparison error',
+      };
+    }
   }
 
   /**
@@ -142,7 +191,7 @@ export class ComparisonService {
     }
 
     // Check maxDiffPixelRatio (percentage)
-    const diffRatio = diffPixels / totalPixels;
+    const diffRatio = totalPixels > 0 ? diffPixels / totalPixels : 0;
     if (diffRatio > this.config.comparison.maxDiffPixelRatio) {
       return false;
     }
@@ -186,6 +235,7 @@ export class ComparisonService {
         passed: result.passed,
         diffPixels: result.diffPixels,
         diffPercentage: result.diffPercentage,
+        warning: result.warning,
         screenshotPath,
         baselinePath,
         diffPath: result.diffPath,

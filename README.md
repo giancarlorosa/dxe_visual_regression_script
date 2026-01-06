@@ -33,7 +33,7 @@ cp .vrtrc.json.example .vrtrc.json
 # 2. Edit .vrtrc.json with your API endpoint and settings
 
 # 3. Test the connection
-npm run vrt:test-connection
+npm run test-connection
 
 # 4. Generate baseline screenshots
 npm run baseline
@@ -49,26 +49,26 @@ npm run report
 
 ## Available Commands
 
-### Playwright Test Commands (Recommended)
+### Main Commands
 
 | Command | Description |
 |---------|-------------|
 | `npm run test` | Run visual regression tests |
+| `npm run test:failed` | Re-run only tests that failed last time |
 | `npm run test:headed` | Run tests with visible browser |
-| `npm run test:failed` | Re-run only failed tests |
-| `npm run test:debug` | Run tests in debug mode |
-| `npm run baseline` | Generate/update baseline screenshots |
-| `npm run baseline:headed` | Generate baselines with visible browser |
+| `npm run test:update` | Run tests and update baselines for passing tests |
+| `npm run baseline` | Generate baseline screenshots for all scenarios |
 | `npm run baseline:failed` | Regenerate baselines only for failed scenarios |
+| `npm run baseline:headed` | Generate baselines with visible browser |
 | `npm run report` | **Open HTML report with visual diffs** |
 
 ### CLI Utility Commands
 
 | Command | Description |
 |---------|-------------|
-| `npm run vrt:test-connection` | Test connectivity to the API endpoint |
-| `npm run vrt:list` | List all available scenarios and viewports |
-| `npm run vrt:init` | Create a default `.vrtrc.json` configuration file |
+| `npm run test-connection` | Test connectivity to the API endpoint |
+| `npm run list` | List all available scenarios and viewports |
+| `npm run init` | Create a default `.vrtrc.json` configuration file |
 
 ### Build Commands
 
@@ -87,7 +87,7 @@ npm run report
 Verify your API endpoint is accessible:
 
 ```bash
-npm run vrt:test-connection
+npm run test-connection
 ```
 
 **Output example:**
@@ -188,7 +188,8 @@ npm run baseline
     "headless": true,
     "timeout": 30000,
     "navigationTimeout": 30000,
-    "screenshotTimeout": 10000
+    "screenshotTimeout": 10000,
+    "workers": 4
   },
   "retries": {
     "maxRetries": 2,
@@ -224,6 +225,7 @@ npm run baseline
 | `playwright.timeout` | number | `30000` | Default timeout in milliseconds |
 | `playwright.navigationTimeout` | number | `30000` | Navigation timeout in milliseconds |
 | `playwright.screenshotTimeout` | number | `10000` | Screenshot timeout in milliseconds |
+| `playwright.workers` | number | `1` | Number of parallel browser workers |
 
 ### Environment Variables
 

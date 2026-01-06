@@ -7,10 +7,12 @@ dist/
 # Test artifacts
 test-results/
 reports/
+vrt-report/
 baselines/
 screenshots/
 diffs/
 .scenarios-cache.json
+.vrt-failed.json
 report.html
 
 # Config (contains sensitive endpoint/token)

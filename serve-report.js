@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Custom Report Server
- * Serves Playwright HTML report with custom CSS injection
+ * Serves Visual Regression Test HTML report
  */
 
 const http = require('http');
@@ -10,7 +10,10 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 
-const REPORT_DIR = path.join(__dirname, 'reports', 'html-report');
+// Check for VRT report first, fall back to Playwright report
+const VRT_REPORT_DIR = path.join(__dirname, 'vrt-report');
+const PLAYWRIGHT_REPORT_DIR = path.join(__dirname, 'reports', 'html-report');
+const REPORT_DIR = fs.existsSync(VRT_REPORT_DIR) ? VRT_REPORT_DIR : PLAYWRIGHT_REPORT_DIR;
 const PORT = 9324;
 
 // ANSI color codes
@@ -48,7 +51,7 @@ function isPortInUse(port) {
 // Custom CSS to inject
 const CUSTOM_CSS = `
 <style>
-  body { max-width: 1440px !important; margin: 0 auto !important; }
+  body { max-width: 1600px !important; margin: 0 auto !important; }
 </style>
 `;
 
@@ -67,7 +70,7 @@ const MIME_TYPES = {
 
 // Check if report exists
 if (!fs.existsSync(REPORT_DIR)) {
-  console.error(`${colors.red}No report found. Run tests first: npm run test${colors.reset}`);
+  console.error(`${colors.red}No report found. Run tests first: npm run run-tests${colors.reset}`);
   process.exit(1);
 }
 
@@ -92,6 +95,9 @@ function handleRequest(req, res) {
   // Remove query strings
   filePath = filePath.split('?')[0];
 
+  // Decode URL-encoded paths
+  filePath = decodeURIComponent(filePath);
+
   const ext = path.extname(filePath);
   const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
@@ -105,7 +111,10 @@ function handleRequest(req, res) {
             res.end('Not found');
           } else {
             let html = content2.toString();
-            html = html.replace('</head>', CUSTOM_CSS + '</head>');
+            // Only inject custom CSS for Playwright reports (which have </head>)
+            if (html.includes('</head>') && REPORT_DIR === PLAYWRIGHT_REPORT_DIR) {
+              html = html.replace('</head>', CUSTOM_CSS + '</head>');
+            }
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end(html);
           }
@@ -115,8 +124,8 @@ function handleRequest(req, res) {
         res.end('Server error');
       }
     } else {
-      // Inject custom CSS into HTML files
-      if (ext === '.html') {
+      // Inject custom CSS into HTML files (only for Playwright reports)
+      if (ext === '.html' && REPORT_DIR === PLAYWRIGHT_REPORT_DIR) {
         let html = content.toString();
         html = html.replace('</head>', CUSTOM_CSS + '</head>');
         res.writeHead(200, { 'Content-Type': contentType });
@@ -152,9 +161,11 @@ async function startServer() {
   const server = http.createServer(handleRequest);
 
   server.listen(PORT, '127.0.0.1', () => {
+    const reportType = REPORT_DIR === VRT_REPORT_DIR ? 'VRT' : 'Playwright';
     console.log();
-    console.log(`  ${colors.green}${colors.bold}Report server started!${colors.reset}`);
+    console.log(`  ${colors.green}${colors.bold}${reportType} Report server started!${colors.reset}`);
     console.log();
+    console.log(`  ${colors.cyan}Report directory:${colors.reset} ${REPORT_DIR}`);
     console.log(`  ${colors.cyan}View report at:${colors.reset} ${colors.green}${colors.bold}${url}${colors.reset}`);
     console.log();
     console.log(`  ${colors.yellow}Press Ctrl+C to quit.${colors.reset}`);

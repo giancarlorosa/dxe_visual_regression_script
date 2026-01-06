@@ -42,6 +42,10 @@ program
     '--headed',
     'Run browser in headed mode (visible) for debugging'
   )
+  .option(
+    '-f, --failed',
+    'Only regenerate baselines for scenarios that failed in the last test run'
+  )
   .action(generateBaseline);
 
 // Run Tests Command
@@ -64,6 +68,10 @@ program
   .option(
     '--headed',
     'Run browser in headed mode (visible) for debugging'
+  )
+  .option(
+    '-f, --failed',
+    'Only run tests that failed in the last run'
   )
   .action(runTests);
 

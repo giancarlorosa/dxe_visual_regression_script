@@ -3,13 +3,16 @@
  * Captures screenshots and compares them against baselines
  */
 
+import * as path from 'path';
 import chalk from 'chalk';
 import ora from 'ora';
 import { loadConfig } from '../config/loader';
 import { ApiService } from '../services/api';
 import { ScreenshotService } from '../services/screenshot';
 import { ComparisonService } from '../services/comparison';
-import { Scenario, Viewport, TestResult, TestRunSummary } from '../types';
+import { generateReport, cleanReport } from '../report/generator';
+import { saveFailedTests, loadFailedTests, clearFailedTests, FailedTest } from '../services/failed-tracker';
+import { Scenario, Viewport, TestResult, TestRunSummary, ReportTestResult } from '../types';
 
 export interface RunTestsOptions {
   config?: string;
@@ -17,6 +20,7 @@ export interface RunTestsOptions {
   viewport?: string[];
   updateBaseline?: boolean;
   headed?: boolean;
+  failed?: boolean;
 }
 
 export async function runTests(options: RunTestsOptions): Promise<void> {
@@ -27,12 +31,31 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
     const config = loadConfig(options.config);
     spinner.succeed('Configuration loaded');
 
+    // Handle --failed flag
+    let scenarioFilter = options.scenario;
+    let viewportFilter = options.viewport;
+
+    if (options.failed) {
+      const failedTests = loadFailedTests();
+      if (failedTests.length === 0) {
+        spinner.succeed('No failed tests to re-run');
+        console.log();
+        console.log(chalk.green('All tests passed in the last run!'));
+        return;
+      }
+
+      // Extract unique scenario IDs from failed tests
+      scenarioFilter = [...new Set(failedTests.map(t => t.scenarioId))];
+      spinner.succeed(`Found ${failedTests.length} failed tests from last run`);
+      spinner.start('Fetching scenarios from API...');
+    }
+
     // Fetch scenarios from API
     spinner.start('Fetching scenarios from API...');
     const apiService = new ApiService(config);
     const payload = await apiService.fetchFilteredScenarios(
-      options.scenario,
-      options.viewport
+      scenarioFilter,
+      viewportFilter
     );
     spinner.succeed(`Fetched ${payload.meta.scenario_count} scenarios with ${payload.meta.viewport_count} viewports`);
 
@@ -83,6 +106,7 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
     console.log(chalk.cyan(`  Scenarios: ${payload.scenarios.length}`));
     console.log(chalk.cyan(`  Viewports: ${payload.viewports.length}`));
     console.log(chalk.cyan(`  Total tests: ${totalTests}`));
+    console.log(chalk.cyan(`  Workers: ${config.playwright.workers}`));
     console.log(chalk.cyan(`  Baseline directory: ${config.baselineDir}`));
     console.log(chalk.cyan(`  Output directory: ${config.outputDir}`));
 
@@ -108,92 +132,140 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
     comparisonService.cleanDiffs();
 
     const results: TestResult[] = [];
-    let currentTest = 0;
     const startTime = Date.now();
 
-    spinner.start(`Running tests: 0/${totalTests}`);
+    // Build task queue for parallel processing
+    interface TestTask {
+      scenario: Scenario;
+      viewport: Viewport;
+      viewportKey: string;
+    }
 
-    try {
-      for (const scenario of payload.scenarios) {
-        for (const viewportKey of scenario.viewport_keys) {
-          currentTest++;
-          const viewport = viewportMap.get(viewportKey);
+    const tasks: TestTask[] = [];
+    for (const scenario of payload.scenarios) {
+      for (const viewportKey of scenario.viewport_keys) {
+        const viewport = viewportMap.get(viewportKey);
+        if (viewport) {
+          tasks.push({ scenario, viewport, viewportKey });
+        } else {
+          // Handle missing viewport immediately
+          results.push({
+            scenarioId: scenario.id,
+            scenarioTitle: scenario.title,
+            viewport: viewportKey,
+            passed: false,
+            error: `Viewport not found: ${viewportKey}`,
+          });
+        }
+      }
+    }
 
-          if (!viewport) {
-            results.push({
-              scenarioId: scenario.id,
-              scenarioTitle: scenario.title,
-              viewport: viewportKey,
-              passed: false,
-              error: `Viewport not found: ${viewportKey}`,
-            });
-            continue;
-          }
+    // Shared counters for progress tracking
+    const counters = {
+      completed: 0,
+      passed: 0,
+      failed: 0,
+      taskIndex: 0,
+    };
 
-          spinner.text = `Running tests: ${currentTest}/${totalTests} - ${scenario.title} @ ${viewport.label}`;
+    // Helper to update spinner
+    const updateSpinner = () => {
+      const passedText = chalk.green(`Passed: ${counters.passed}`);
+      const failedText = counters.failed > 0 ? chalk.red(`Failed: ${counters.failed}`) : `Failed: ${counters.failed}`;
+      spinner.text = `Testing: ${counters.completed}/${totalTests} | ${passedText} | ${failedText}`;
+    };
 
-          try {
-            // Capture screenshot
-            const screenshotPath = await screenshotService.captureWithRetry(
-              scenario,
-              viewport,
-              config.outputDir
-            );
+    // Worker function that captures and compares
+    const processTask = async (): Promise<void> => {
+      while (true) {
+        const taskIdx = counters.taskIndex++;
+        if (taskIdx >= tasks.length) break;
 
-            // Check if baseline exists
-            if (!comparisonService.baselineExists(scenario.id, viewportKey)) {
-              if (options.updateBaseline) {
-                // Create baseline from current screenshot
-                comparisonService.copyToBaseline(screenshotPath, scenario.id, viewportKey);
-                results.push({
-                  scenarioId: scenario.id,
-                  scenarioTitle: scenario.title,
-                  viewport: viewportKey,
-                  passed: true,
-                  screenshotPath,
-                  baselinePath: comparisonService.getBaselinePath(scenario.id, viewportKey),
-                });
-              } else {
-                results.push({
-                  scenarioId: scenario.id,
-                  scenarioTitle: scenario.title,
-                  viewport: viewportKey,
-                  passed: false,
-                  error: 'Baseline not found. Run generate-baseline first or use --update-baseline.',
-                  screenshotPath,
-                });
-              }
-              continue;
+        const task = tasks[taskIdx];
+        let testResult: TestResult;
+
+        try {
+          // Capture screenshot
+          const screenshotPath = await screenshotService.captureWithRetry(
+            task.scenario,
+            task.viewport,
+            config.outputDir
+          );
+
+          // Check if baseline exists
+          if (!comparisonService.baselineExists(task.scenario.id, task.viewportKey)) {
+            if (options.updateBaseline) {
+              comparisonService.copyToBaseline(screenshotPath, task.scenario.id, task.viewportKey);
+              testResult = {
+                scenarioId: task.scenario.id,
+                scenarioTitle: task.scenario.title,
+                viewport: task.viewportKey,
+                passed: true,
+                screenshotPath,
+                baselinePath: comparisonService.getBaselinePath(task.scenario.id, task.viewportKey),
+              };
+            } else {
+              testResult = {
+                scenarioId: task.scenario.id,
+                scenarioTitle: task.scenario.title,
+                viewport: task.viewportKey,
+                passed: false,
+                error: 'Baseline not found. Run generate-baseline first or use --update-baseline.',
+                screenshotPath,
+              };
             }
-
-            // Compare with baseline
+          } else {
+            // Compare with baseline immediately after capture
             const comparisonResult = await comparisonService.compareScreenshot(
-              scenario.id,
-              viewportKey,
+              task.scenario.id,
+              task.viewportKey,
               screenshotPath
             );
 
-            comparisonResult.scenarioTitle = scenario.title;
+            comparisonResult.scenarioTitle = task.scenario.title;
 
-            // Update baseline if option set and test passed
             if (options.updateBaseline && comparisonResult.passed) {
-              comparisonService.copyToBaseline(screenshotPath, scenario.id, viewportKey);
+              comparisonService.copyToBaseline(screenshotPath, task.scenario.id, task.viewportKey);
             }
 
-            results.push(comparisonResult);
-          } catch (error) {
-            results.push({
-              scenarioId: scenario.id,
-              scenarioTitle: scenario.title,
-              viewport: viewportKey,
-              passed: false,
-              error: error instanceof Error ? error.message : 'Unknown error',
-            });
+            testResult = comparisonResult;
           }
+        } catch (error) {
+          testResult = {
+            scenarioId: task.scenario.id,
+            scenarioTitle: task.scenario.title,
+            viewport: task.viewportKey,
+            passed: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          };
         }
-      }
 
-      spinner.succeed(`Completed ${totalTests} tests`);
+        // Update counters and results
+        counters.completed++;
+        if (testResult.passed) {
+          counters.passed++;
+        } else {
+          counters.failed++;
+        }
+        results.push(testResult);
+        updateSpinner();
+      }
+    };
+
+    spinner.start(`Testing: 0/${totalTests} | Passed: 0 | Failed: 0`);
+
+    try {
+      // Run workers in parallel
+      const numWorkers = Math.min(config.playwright.workers, tasks.length);
+      const workers: Promise<void>[] = [];
+      for (let i = 0; i < numWorkers; i++) {
+        workers.push(processTask());
+      }
+      await Promise.all(workers);
+
+      const passedFinal = chalk.green(`Passed: ${counters.passed}`);
+      const failedFinal = counters.failed > 0 ? chalk.red(`Failed: ${counters.failed}`) : `Failed: ${counters.failed}`;
+      spinner.succeed(`Completed ${totalTests} tests | ${passedFinal} | ${failedFinal}`);
     } finally {
       await screenshotService.close();
     }
@@ -210,9 +282,53 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
       results,
     };
 
+    // Save failed tests for --failed flag
+    const failedTests: FailedTest[] = results
+      .filter((r) => !r.passed)
+      .map((r) => ({
+        scenarioId: r.scenarioId,
+        viewport: r.viewport,
+      }));
+
+    if (failedTests.length > 0) {
+      saveFailedTests(failedTests);
+    } else {
+      clearFailedTests();
+    }
+
+    // Generate HTML report
+    spinner.start('Generating HTML report...');
+    const reportDir = path.join(process.cwd(), 'vrt-report');
+    cleanReport(reportDir);
+
+    const reportResults: ReportTestResult[] = results.map((result) => ({
+      name: `${result.scenarioTitle} @ ${result.viewport}`,
+      status: result.passed ? 'passed' : 'failed',
+      baseline: result.baselinePath,
+      current: result.screenshotPath,
+      diff: result.diffPath,
+      diffPixels: result.diffPixels,
+      diffPercentage: result.diffPercentage,
+      warning: result.warning,
+    }));
+
+    const reportResult = generateReport(reportResults, {
+      outputDir: reportDir,
+      title: 'Visual Regression Report',
+      copyImages: true,
+    });
+
+    spinner.succeed(`Report generated: ${reportResult.reportPath}`);
+
     // Print results
     console.log();
     printResults(results, summary);
+
+    // Print report location
+    console.log();
+    console.log(chalk.cyan('View the detailed report:'));
+    console.log(chalk.cyan(`  npm run report`));
+    console.log(chalk.cyan(`  or open: ${reportResult.reportPath}`));
 
     // Exit with error code if tests failed
     if (summary.failed > 0) {
@@ -245,7 +361,11 @@ function printResults(results: TestResult[], summary: TestRunSummary): void {
     const testName = `${result.scenarioTitle} @ ${result.viewport}`;
 
     if (result.passed) {
-      console.log(`  ${status} ${testName}`);
+      let suffix = '';
+      if (result.warning === 'dimension-mismatch') {
+        suffix = chalk.yellow(' (dimension mismatch ignored)');
+      }
+      console.log(`  ${status} ${testName}${suffix}`);
     } else {
       console.log(`  ${status} ${testName}`);
 
@@ -283,6 +403,6 @@ function printResults(results: TestResult[], summary: TestRunSummary): void {
     console.log(chalk.red.bold(`${summary.failed} test(s) failed.`));
     console.log();
     console.log('To update baselines for failing tests:');
-    console.log(chalk.cyan('  vrt run-tests --update-baseline'));
+    console.log(chalk.cyan('  npm run vrt:update-baseline'));
   }
 }

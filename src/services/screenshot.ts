@@ -1,6 +1,6 @@
 /**
  * Screenshot Service
- * Handles screenshot capture using Playwright
+ * Handles screenshot capture using Playwright with parallel worker support
  */
 
 import { chromium, Browser, Page, BrowserContext } from '@playwright/test';
@@ -8,14 +8,30 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { VrtConfig, Scenario, Viewport, Interaction } from '../types';
 
+interface CaptureTask {
+  scenario: Scenario;
+  viewport: Viewport;
+  outputDir: string;
+  index: number;
+}
+
+interface CaptureResult {
+  key: string;
+  path: string;
+  index: number;
+  error?: string;
+}
+
 export class ScreenshotService {
   private config: VrtConfig;
   private browser: Browser | null = null;
   private headless: boolean;
+  private workers: number;
 
   constructor(config: VrtConfig, headless?: boolean) {
     this.config = config;
     this.headless = headless ?? config.playwright.headless;
+    this.workers = config.playwright.workers;
   }
 
   /**
@@ -102,13 +118,20 @@ export class ScreenshotService {
   }
 
   /**
+   * Wait for fonts to finish loading
+   */
+  private async waitForFonts(page: Page): Promise<void> {
+    await page.evaluate(`document.fonts.ready`);
+  }
+
+  /**
    * Wait for page height to stabilize (no changes for multiple checks)
    */
-  private async waitForStableHeight(page: Page, timeout = 5000): Promise<void> {
+  private async waitForStableHeight(page: Page, timeout = 8000): Promise<void> {
     let previousHeight = 0;
     let stableCount = 0;
-    const requiredStableChecks = 3;
-    const checkInterval = 200;
+    const requiredStableChecks = 5; // Increased from 3
+    const checkInterval = 300; // Increased from 200ms
     const startTime = Date.now();
 
     while (Date.now() - startTime < timeout) {
@@ -126,6 +149,9 @@ export class ScreenshotService {
       previousHeight = currentHeight;
       await page.waitForTimeout(checkInterval);
     }
+
+    // Extra settle time after stabilization
+    await page.waitForTimeout(200);
   }
 
   /**
@@ -224,6 +250,9 @@ export class ScreenshotService {
         await this.executeInteractions(page, scenario.interactions);
       }
 
+      // Wait for fonts to load
+      await this.waitForFonts(page);
+
       // Handle lazy loading for full-page screenshots
       if (viewport.full_page) {
         // Scroll through page to trigger lazy loading
@@ -234,6 +263,9 @@ export class ScreenshotService {
 
         // Wait for page height to stabilize
         await this.waitForStableHeight(page);
+      } else {
+        // For non-full-page, still wait for basic stability
+        await page.waitForTimeout(300);
       }
 
       // Generate filename and full path
@@ -254,7 +286,61 @@ export class ScreenshotService {
   }
 
   /**
-   * Capture screenshots for all scenario/viewport combinations
+   * Worker function that processes tasks from a queue
+   */
+  private async worker(
+    tasks: CaptureTask[],
+    taskIndex: { value: number },
+    completedCount: { value: number },
+    results: CaptureResult[],
+    onProgress?: (current: number, total: number, scenario: Scenario, viewport: Viewport) => void
+  ): Promise<void> {
+    const total = tasks.length;
+
+    while (true) {
+      // Get next task atomically
+      const currentIndex = taskIndex.value++;
+      if (currentIndex >= tasks.length) {
+        break;
+      }
+
+      const task = tasks[currentIndex];
+      const key = `${task.scenario.id}__${task.viewport.machine_name}`;
+
+      try {
+        const screenshotPath = await this.captureScreenshot(
+          task.scenario,
+          task.viewport,
+          task.outputDir
+        );
+        results.push({
+          key,
+          path: screenshotPath,
+          index: task.index,
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error(
+          `Failed to capture screenshot for ${task.scenario.title} @ ${task.viewport.machine_name}: ${errorMessage}`
+        );
+        results.push({
+          key,
+          path: '',
+          index: task.index,
+          error: errorMessage,
+        });
+      }
+
+      // Update progress after task completion
+      const completed = ++completedCount.value;
+      if (onProgress) {
+        onProgress(completed, total, task.scenario, task.viewport);
+      }
+    }
+  }
+
+  /**
+   * Capture screenshots for all scenario/viewport combinations using parallel workers
    */
   async captureAll(
     scenarios: Scenario[],
@@ -270,13 +356,9 @@ export class ScreenshotService {
       viewportMap.set(viewport.machine_name, viewport);
     }
 
-    // Calculate total count
-    let total = 0;
-    for (const scenario of scenarios) {
-      total += scenario.viewport_keys.length;
-    }
-
-    let current = 0;
+    // Build task queue
+    const tasks: CaptureTask[] = [];
+    let index = 0;
 
     for (const scenario of scenarios) {
       for (const viewportKey of scenario.viewport_keys) {
@@ -286,25 +368,38 @@ export class ScreenshotService {
           continue;
         }
 
-        current++;
-        if (onProgress) {
-          onProgress(current, total, scenario, viewport);
-        }
+        tasks.push({
+          scenario,
+          viewport,
+          outputDir,
+          index: index++,
+        });
+      }
+    }
 
-        try {
-          const screenshotPath = await this.captureScreenshot(
-            scenario,
-            viewport,
-            outputDir
-          );
-          const key = `${scenario.id}__${viewportKey}`;
-          results.set(key, screenshotPath);
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          console.error(
-            `Failed to capture screenshot for ${scenario.title} @ ${viewportKey}: ${errorMessage}`
-          );
-        }
+    if (tasks.length === 0) {
+      return results;
+    }
+
+    // Use worker pool for parallel execution
+    const numWorkers = Math.min(this.workers, tasks.length);
+    const taskIndex = { value: 0 };
+    const completedCount = { value: 0 };
+    const captureResults: CaptureResult[] = [];
+
+    // Create and run workers in parallel
+    const workerPromises: Promise<void>[] = [];
+    for (let i = 0; i < numWorkers; i++) {
+      workerPromises.push(this.worker(tasks, taskIndex, completedCount, captureResults, onProgress));
+    }
+
+    // Wait for all workers to complete
+    await Promise.all(workerPromises);
+
+    // Collect results
+    for (const result of captureResults) {
+      if (!result.error && result.path) {
+        results.set(result.key, result.path);
       }
     }
 

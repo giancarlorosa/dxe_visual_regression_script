@@ -24,6 +24,7 @@ const DEFAULT_CONFIG: VrtConfig = {
     timeout: 30000,
     navigationTimeout: 30000,
     screenshotTimeout: 10000,
+    workers: 1,
   },
   retries: {
     maxRetries: 2,
@@ -100,6 +101,12 @@ function validateConfig(config: Partial<VrtConfig>): string[] {
     ) {
       errors.push('playwright.navigationTimeout must be non-negative');
     }
+    if (
+      config.playwright.workers !== undefined &&
+      (config.playwright.workers < 1 || !Number.isInteger(config.playwright.workers))
+    ) {
+      errors.push('playwright.workers must be a positive integer');
+    }
   }
 
   return errors;
@@ -129,6 +136,7 @@ function deepMerge(
       timeout: source.playwright?.timeout ?? target.playwright.timeout,
       navigationTimeout: source.playwright?.navigationTimeout ?? target.playwright.navigationTimeout,
       screenshotTimeout: source.playwright?.screenshotTimeout ?? target.playwright.screenshotTimeout,
+      workers: source.playwright?.workers ?? target.playwright.workers,
     },
     retries: {
       maxRetries: source.retries?.maxRetries ?? target.retries.maxRetries,
@@ -228,6 +236,7 @@ export function createDefaultConfig(targetPath?: string): string {
       timeout: 30000,
       navigationTimeout: 30000,
       screenshotTimeout: 10000,
+      workers: 1,
     },
     retries: {
       maxRetries: 2,
