@@ -225,7 +225,9 @@
     /* Slider Comparison */
     .comparison-container {
       position: relative;
-      width: 100%;
+      width: fit-content;
+      max-width: 100%;
+      margin: 0 auto;
       background: #222;
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -234,12 +236,15 @@
 
     .slider-view {
       position: relative;
-      min-height: 400px;
+      width: fit-content;
+      max-width: 100%;
     }
 
     .slider-wrapper {
       position: relative;
-      width: 100%;
+      width: fit-content;
+      max-width: 100%;
+      overflow: hidden;
     }
 
     .comparison-image {
@@ -251,15 +256,13 @@
 
     .comparison-image.baseline {
       position: relative;
-      left: 50%;
-      transform: translateX(-50%);
     }
 
     .comparison-image.current {
       position: absolute;
       top: 0;
-      left: 50%;
-      transform: translateX(-50%);
+      left: 0;
+      width: 100%;
       clip-path: inset(0 0 0 50%);
     }
 
@@ -386,9 +389,8 @@
     .diff-overlay {
       position: absolute;
       top: 0;
-      left: 50%;
-      transform: translateX(-50%);
-      max-width: 100%;
+      left: 0;
+      width: 100%;
       height: auto;
       opacity: 0.6;
       mix-blend-mode: multiply;
