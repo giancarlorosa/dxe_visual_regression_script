@@ -9,6 +9,8 @@ import { VrtConfig } from '../types';
 
 const DEFAULT_CONFIG: VrtConfig = {
   endpoint: '',
+  baselineDomain: null,
+  testDomain: null,
   token: '',
   insecure: false,
   outputDir: './screenshots',
@@ -69,6 +71,24 @@ function validateConfig(config: Partial<VrtConfig>): string[] {
     }
   }
 
+  // Validate baselineDomain if set
+  if (config.baselineDomain && config.baselineDomain.trim() !== '') {
+    try {
+      new URL(config.baselineDomain);
+    } catch {
+      errors.push(`Invalid baselineDomain URL: ${config.baselineDomain}`);
+    }
+  }
+
+  // Validate testDomain if set
+  if (config.testDomain && config.testDomain.trim() !== '') {
+    try {
+      new URL(config.testDomain);
+    } catch {
+      errors.push(`Invalid testDomain URL: ${config.testDomain}`);
+    }
+  }
+
   if (config.comparison) {
     if (
       config.comparison.threshold !== undefined &&
@@ -121,6 +141,8 @@ function deepMerge(
 ): VrtConfig {
   const result: VrtConfig = {
     endpoint: source.endpoint ?? target.endpoint,
+    baselineDomain: source.baselineDomain !== undefined ? source.baselineDomain : target.baselineDomain,
+    testDomain: source.testDomain !== undefined ? source.testDomain : target.testDomain,
     token: source.token ?? target.token,
     insecure: source.insecure ?? target.insecure,
     outputDir: source.outputDir ?? target.outputDir,
@@ -185,6 +207,12 @@ export function loadConfig(configPath?: string): VrtConfig {
   if (process.env.VRT_BASELINE_DIR) {
     config.baselineDir = process.env.VRT_BASELINE_DIR;
   }
+  if (process.env.VRT_BASELINE_DOMAIN) {
+    config.baselineDomain = process.env.VRT_BASELINE_DOMAIN;
+  }
+  if (process.env.VRT_TEST_DOMAIN) {
+    config.testDomain = process.env.VRT_TEST_DOMAIN;
+  }
 
   // Merge with defaults
   const mergedConfig = deepMerge(DEFAULT_CONFIG, config);
@@ -221,6 +249,8 @@ export function createDefaultConfig(targetPath?: string): string {
 
   const defaultConfig = {
     endpoint: 'https://example.org/api/vrt/pages',
+    baselineDomain: null,
+    testDomain: null,
     token: '',
     insecure: false,
     outputDir: './screenshots',

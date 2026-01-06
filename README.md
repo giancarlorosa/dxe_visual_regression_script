@@ -5,6 +5,7 @@ A visual regression testing tool using Playwright. Fetches test scenarios from a
 ## Features
 
 - **API-driven scenarios**: Fetch test scenarios from a configurable endpoint
+- **Cross-environment testing**: Compare different domains (e.g., production vs staging)
 - **Playwright-powered**: Uses Playwright's native test runner and visual comparison
 - **Interactive scenarios**: Supports click, type, mouseover, and wait interactions
 - **HTML Report**: Built-in visual diff report with side-by-side comparison
@@ -174,6 +175,8 @@ npm run baseline
 ```json
 {
   "endpoint": "https://visualregression.ddev.site/api/vrt/pages",
+  "baselineDomain": null,
+  "testDomain": null,
   "token": "",
   "insecure": true,
   "outputDir": "./screenshots",
@@ -203,6 +206,8 @@ npm run baseline
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `endpoint` | string | *required* | API endpoint URL |
+| `baselineDomain` | string | `null` | Override domain for baseline screenshots |
+| `testDomain` | string | `null` | Override domain for test screenshots |
 | `token` | string | `""` | Bearer token for authentication |
 | `insecure` | boolean | `false` | Allow self-signed SSL certificates |
 | `outputDir` | string | `./screenshots` | Directory for captured screenshots |
@@ -234,9 +239,74 @@ Environment variables override configuration file values.
 | Variable | Description |
 |----------|-------------|
 | `VRT_ENDPOINT` | Override endpoint URL |
+| `VRT_BASELINE_DOMAIN` | Override baseline domain |
+| `VRT_TEST_DOMAIN` | Override test domain |
 | `VRT_TOKEN` | Override bearer token |
 | `VRT_OUTPUT_DIR` | Override output directory |
 | `VRT_BASELINE_DIR` | Override baseline directory |
+
+---
+
+## Cross-Environment Testing
+
+The `baselineDomain` and `testDomain` options allow you to test across different environments while fetching scenarios from a single API source.
+
+### Use Case
+
+This is useful when:
+- Your scenario API (Drupal module) runs locally but isn't deployed to production yet
+- You want to compare production against staging/pre-production
+- You need to verify that deployments haven't broken the UI
+
+### How It Works
+
+1. **Scenario URLs** are fetched from the API endpoint (e.g., local Drupal)
+2. **Baseline screenshots** use `baselineDomain` if set (e.g., production)
+3. **Test screenshots** use `testDomain` if set (e.g., staging)
+
+### Example Configuration
+
+```json
+{
+  "endpoint": "https://visualregression.ddev.site/api/vrt/pages",
+  "baselineDomain": "https://www.production-site.org",
+  "testDomain": "https://staging.production-site.org",
+  "insecure": true
+}
+```
+
+With this configuration:
+- Scenarios are fetched from `visualregression.ddev.site`
+- A scenario URL like `https://visualregression.ddev.site/about-us` becomes:
+  - **Baseline**: `https://www.production-site.org/about-us`
+  - **Test**: `https://staging.production-site.org/about-us`
+
+### Behavior Matrix
+
+| baselineDomain | testDomain | Baseline URL | Test URL |
+|----------------|------------|--------------|----------|
+| `null` | `null` | Original API URL | Original API URL |
+| set | `null` | baselineDomain | Original API URL |
+| `null` | set | Original API URL | testDomain |
+| set | set | baselineDomain | testDomain |
+
+### Workflow Example
+
+```bash
+# 1. Configure domains in .vrtrc.json
+#    endpoint: local Drupal
+#    baselineDomain: production
+#    testDomain: staging
+
+# 2. Generate baselines from production
+npm run baseline
+
+# 3. Run tests against staging
+npm run test
+
+# 4. Review differences
+npm run report
+```
 
 ---
 

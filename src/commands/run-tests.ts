@@ -12,6 +12,7 @@ import { ScreenshotService } from '../services/screenshot';
 import { ComparisonService } from '../services/comparison';
 import { generateReport, cleanReport } from '../report/generator';
 import { saveFailedTests, loadFailedTests, clearFailedTests, FailedTest } from '../services/failed-tracker';
+import { replaceDomain } from '../utils/url';
 import { Scenario, Viewport, TestResult, TestRunSummary, ReportTestResult } from '../types';
 
 export interface RunTestsOptions {
@@ -110,6 +111,10 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
     console.log(chalk.cyan(`  Baseline directory: ${config.baselineDir}`));
     console.log(chalk.cyan(`  Output directory: ${config.outputDir}`));
 
+    if (config.testDomain) {
+      console.log(chalk.magenta(`  Test domain: ${config.testDomain}`));
+    }
+
     if (options.updateBaseline) {
       console.log(chalk.yellow(`  Mode: Update baselines on pass`));
     }
@@ -119,6 +124,23 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
     }
 
     console.log();
+
+    // Compute baseline URLs for each scenario (using original API URL + baselineDomain)
+    const baselineUrlMap = new Map<string, string>();
+    for (const scenario of payload.scenarios) {
+      baselineUrlMap.set(
+        scenario.id,
+        replaceDomain(scenario.url, config.baselineDomain)
+      );
+    }
+
+    // Apply testDomain transformation if configured
+    const scenariosToTest = config.testDomain
+      ? payload.scenarios.map(s => ({
+          ...s,
+          url: replaceDomain(s.url, config.testDomain)
+        }))
+      : payload.scenarios;
 
     // Initialize services
     spinner.start('Initializing browser...');
@@ -142,7 +164,7 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
     }
 
     const tasks: TestTask[] = [];
-    for (const scenario of payload.scenarios) {
+    for (const scenario of scenariosToTest) {
       for (const viewportKey of scenario.viewport_keys) {
         const viewport = viewportMap.get(viewportKey);
         if (viewport) {
@@ -153,6 +175,7 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
             scenarioId: scenario.id,
             scenarioTitle: scenario.title,
             scenarioUrl: scenario.url,
+            baselineUrl: baselineUrlMap.get(scenario.id),
             viewport: viewportKey,
             passed: false,
             error: `Viewport not found: ${viewportKey}`,
@@ -201,6 +224,7 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
                 scenarioId: task.scenario.id,
                 scenarioTitle: task.scenario.title,
                 scenarioUrl: task.scenario.url,
+                baselineUrl: baselineUrlMap.get(task.scenario.id),
                 viewport: task.viewportKey,
                 passed: true,
                 screenshotPath,
@@ -211,6 +235,7 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
                 scenarioId: task.scenario.id,
                 scenarioTitle: task.scenario.title,
                 scenarioUrl: task.scenario.url,
+                baselineUrl: baselineUrlMap.get(task.scenario.id),
                 viewport: task.viewportKey,
                 passed: false,
                 error: 'Baseline not found. Run generate-baseline first or use --update-baseline.',
@@ -227,6 +252,7 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
 
             comparisonResult.scenarioTitle = task.scenario.title;
             comparisonResult.scenarioUrl = task.scenario.url;
+            comparisonResult.baselineUrl = baselineUrlMap.get(task.scenario.id);
 
             if (options.updateBaseline && comparisonResult.passed) {
               comparisonService.copyToBaseline(screenshotPath, task.scenario.id, task.viewportKey);
@@ -239,6 +265,7 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
             scenarioId: task.scenario.id,
             scenarioTitle: task.scenario.title,
             scenarioUrl: task.scenario.url,
+            baselineUrl: baselineUrlMap.get(task.scenario.id),
             viewport: task.viewportKey,
             passed: false,
             error: error instanceof Error ? error.message : 'Unknown error',
@@ -309,6 +336,7 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
     const reportResults: ReportTestResult[] = results.map((result) => ({
       name: `${result.scenarioTitle} @ ${result.viewport}`,
       url: result.scenarioUrl,
+      baselineUrl: result.baselineUrl,
       status: result.passed ? 'passed' : 'failed',
       baseline: result.baselinePath,
       current: result.screenshotPath,

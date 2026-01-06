@@ -1,5 +1,7 @@
 {
   "endpoint": "https://your-site.com/api/vrt/pages",
+  "baselineDomain": null,
+  "testDomain": null,
   "token": "",
   "insecure": false,
   "outputDir": "./screenshots",

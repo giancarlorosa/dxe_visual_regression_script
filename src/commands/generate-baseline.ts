@@ -11,6 +11,7 @@ import { loadConfig } from '../config/loader';
 import { ApiService } from '../services/api';
 import { ScreenshotService } from '../services/screenshot';
 import { loadFailedTests, clearFailedTests } from '../services/failed-tracker';
+import { replaceDomain } from '../utils/url';
 import { Scenario, Viewport } from '../types';
 
 /**
@@ -132,11 +133,23 @@ export async function generateBaseline(options: GenerateBaselineOptions): Promis
     console.log(chalk.cyan(`  Workers: ${config.playwright.workers}`));
     console.log(chalk.cyan(`  Output directory: ${config.baselineDir}`));
 
+    if (config.baselineDomain) {
+      console.log(chalk.magenta(`  Baseline domain: ${config.baselineDomain}`));
+    }
+
     if (options.headed) {
       console.log(chalk.yellow(`  Browser: Headed mode (visible)`));
     }
 
     console.log();
+
+    // Apply baselineDomain transformation if configured
+    const scenariosToCapture = config.baselineDomain
+      ? payload.scenarios.map(s => ({
+          ...s,
+          url: replaceDomain(s.url, config.baselineDomain)
+        }))
+      : payload.scenarios;
 
     // Clean existing baselines (skip when using --failed to preserve other baselines)
     if (!isFailedMode) {
@@ -177,7 +190,7 @@ export async function generateBaseline(options: GenerateBaselineOptions): Promis
     try {
       // Capture all screenshots
       const results = await screenshotService.captureAll(
-        payload.scenarios,
+        scenariosToCapture,
         payload.viewports,
         config.baselineDir,
         onProgress

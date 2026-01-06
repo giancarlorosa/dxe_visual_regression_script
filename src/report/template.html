@@ -156,6 +156,23 @@
       font-size: 15px;
     }
 
+    .url-links {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 5px;
+    }
+
+    .url-links-dual {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .url-links-dual .test-url {
+      margin-bottom: 0;
+    }
+
     .test-url {
       padding: 8px 16px;
       border: 1px solid var(--border);
@@ -176,6 +193,12 @@
 
     .test-url:hover {
       background: var(--dark);
+      color: var(--text);
+    }
+
+    .test-url .url-label {
+      font-weight: 600;
+      margin-right: 6px;
       color: var(--text);
     }
 
@@ -653,10 +676,42 @@
       });
     }
 
+    function renderUrlLinks(test) {
+      const hasBaselineUrl = test.baselineUrl && test.baselineUrl.trim() !== '';
+      const hasTestUrl = test.url && test.url.trim() !== '';
+      const urlsAreDifferent = hasBaselineUrl && hasTestUrl && test.baselineUrl !== test.url;
+
+      if (!hasBaselineUrl && !hasTestUrl) {
+        return '';
+      }
+
+      if (urlsAreDifferent) {
+        // Show both URLs side by side
+        return `
+          <div class="url-links url-links-dual">
+            <a href="${escapeHtml(test.baselineUrl)}" target="_blank" class="test-url" onclick="event.stopPropagation()" title="${escapeHtml(test.baselineUrl)}">
+              <span class="url-label">Baseline:</span>${escapeHtml(test.baselineUrl)}
+            </a>
+            <a href="${escapeHtml(test.url)}" target="_blank" class="test-url" onclick="event.stopPropagation()" title="${escapeHtml(test.url)}">
+              <span class="url-label">Test:</span>${escapeHtml(test.url)}
+            </a>
+          </div>
+        `;
+      } else {
+        // Show single URL (either test URL or baseline URL if test URL is empty)
+        const url = hasTestUrl ? test.url : test.baselineUrl;
+        return `
+          <div class="url-links">
+            <a href="${escapeHtml(url)}" target="_blank" class="test-url" onclick="event.stopPropagation()" title="${escapeHtml(url)}">${escapeHtml(url)}</a>
+          </div>
+        `;
+      }
+    }
+
     function renderComparison(test, index) {
       return `
         <div class="view-tabs" id="view-tabs-${index}" data-test-index="${index}">
-          ${test.url ? `<a href="${escapeHtml(test.url)}" target="_blank" class="test-url" onclick="event.stopPropagation()" title="${escapeHtml(test.url)}">${escapeHtml(test.url)}</a>` : ''}
+          ${renderUrlLinks(test)}
           <div class="view-tabs-buttons">
             <button class="active" onclick="showView(${index}, 'diff')">Diff Only</button>
             <button onclick="showView(${index}, 'slider')">Slider</button>

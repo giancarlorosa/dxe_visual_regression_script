@@ -90,6 +90,8 @@ export interface RetryConfig {
 
 export interface VrtConfig {
   endpoint: string;
+  baselineDomain: string | null;
+  testDomain: string | null;
   token: string;
   insecure: boolean;
   outputDir: string;
@@ -113,6 +115,7 @@ export interface TestResult {
   scenarioId: string;
   scenarioTitle: string;
   scenarioUrl: string;
+  baselineUrl?: string;
   viewport: string;
   passed: boolean;
   diffPixels?: number;
@@ -127,6 +130,7 @@ export interface TestResult {
 export interface ReportTestResult {
   name: string;
   url: string;
+  baselineUrl?: string;
   status: 'passed' | 'failed';
   baseline?: string;
   current?: string;
