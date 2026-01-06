@@ -125,6 +125,63 @@ export class ScreenshotService {
   }
 
   /**
+   * Stabilize video elements for consistent screenshots
+   * Pauses all HTML5 videos and seeks to the first frame (0 seconds)
+   * This ensures screenshots capture the same frame regardless of timing variations
+   */
+  private async stabilizeVideos(page: Page): Promise<void> {
+    const videoCount = await page.evaluate(`document.querySelectorAll('video').length`) as number;
+
+    if (videoCount === 0) {
+      return; // No videos to stabilize
+    }
+
+    await page.evaluate(`(async () => {
+      const videos = document.querySelectorAll('video');
+
+      await Promise.all(
+        Array.from(videos).map((video) => {
+          return new Promise((resolve) => {
+            // Already paused at frame 0? Skip
+            if (video.paused && video.currentTime === 0) {
+              resolve();
+              return;
+            }
+
+            // Pause immediately to stop playback
+            video.pause();
+
+            // If already at frame 0, resolve immediately
+            if (video.currentTime === 0) {
+              resolve();
+              return;
+            }
+
+            // Listen for seek completion
+            const onSeeked = () => {
+              video.removeEventListener('seeked', onSeeked);
+              resolve();
+            };
+            video.addEventListener('seeked', onSeeked);
+
+            // Seek to first frame
+            video.currentTime = 0;
+
+            // Fallback timeout (2 seconds max) in case seeked event doesn't fire
+            setTimeout(() => {
+              video.removeEventListener('seeked', onSeeked);
+              resolve();
+            }, 2000);
+          });
+        })
+      );
+    })()`);
+
+    // Brief pause for frame rendering after seek
+    await page.waitForTimeout(100);
+  }
+
+  /**
    * Wait for page height to stabilize (no changes for multiple checks)
    */
   private async waitForStableHeight(page: Page, timeout = 8000): Promise<void> {
@@ -244,6 +301,9 @@ export class ScreenshotService {
       if (scenario.wait_time_ms > 0) {
         await page.waitForTimeout(scenario.wait_time_ms);
       }
+
+      // Freeze all HTML5 videos at frame 0 for consistent screenshots
+      await this.stabilizeVideos(page);
 
       // Execute interactions if present (both static and interactive modes)
       if (scenario.interactions.length > 0) {
