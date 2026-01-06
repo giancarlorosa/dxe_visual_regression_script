@@ -222,6 +222,63 @@
       border-color: var(--primary);
     }
 
+    /* Sticky View Tabs */
+    .view-tabs-placeholder {
+      display: none;
+    }
+
+    .view-tabs.sticky {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      background: var(--darker);
+      padding: 12px 20px;
+      margin: 0 auto;
+      width: calc(100% - 48px);
+      max-width: calc(1600px - 48px);
+      border-bottom: 1px solid var(--border);
+      border-radius: 0 0 8px 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+      animation: slideDown 0.2s ease-out;
+    }
+
+    .view-tabs-placeholder.visible {
+      display: flex;
+      visibility: hidden;
+    }
+
+    @keyframes slideDown {
+      from {
+        transform: translateY(-100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
+
+    .view-tabs.slide-up {
+      animation: slideUp 0.2s ease-out forwards;
+    }
+
+    .view-tabs.sticky .hide-on-sticky {
+      display: none;
+    }
+
+    @keyframes slideUp {
+      from {
+        transform: translateY(0);
+        opacity: 1;
+      }
+      to {
+        transform: translateY(-100%);
+        opacity: 0;
+      }
+    }
+
     /* Slider Comparison */
     .comparison-container {
       position: relative;
@@ -561,11 +618,17 @@
 
     function renderComparison(test, index) {
       return `
-        <div class="view-tabs">
+        <div class="view-tabs" id="view-tabs-${index}" data-test-index="${index}">
           <button class="active" onclick="showView(${index}, 'slider')">Slider</button>
-          <button onclick="showView(${index}, 'side-by-side')">Side by Side</button>
           <button onclick="showView(${index}, 'diff')">Diff Only</button>
           <button onclick="toggleDiffOverlay(${index})">Toggle Overlay</button>
+          <button class="hide-on-sticky" onclick="showView(${index}, 'side-by-side')">Side by Side</button>
+        </div>
+        <div class="view-tabs view-tabs-placeholder" id="view-tabs-placeholder-${index}">
+          <button>Slider</button>
+          <button>Diff Only</button>
+          <button>Toggle Overlay</button>
+          <button class="hide-on-sticky">Side by Side</button>
         </div>
 
         <div class="comparison-container" id="comparison-${index}">
@@ -636,6 +699,7 @@
       if (expandedTests.has(index)) {
         expandedTests.delete(index);
         activeSlider = null;
+        clearStickyState(index);
       } else {
         expandedTests.add(index);
         activeSlider = index;
@@ -782,6 +846,90 @@
       });
     }
 
+    // Sticky view-tabs handling
+    let currentStickyTabs = null;
+    let lastStickyIndex = null;
+
+    function setupStickyViewTabs() {
+      window.addEventListener('scroll', handleStickyScroll, { passive: true });
+    }
+
+    function handleStickyScroll() {
+      let newStickyTabs = null;
+      let newStickyIndex = null;
+
+      // Find which expanded test should have sticky tabs
+      expandedTests.forEach(index => {
+        const testResult = document.querySelector(`.test-result[data-index="${index}"]`);
+        if (!testResult || !testResult.classList.contains('expanded')) return;
+
+        const testBody = testResult.querySelector('.test-body');
+        const viewTabs = document.getElementById(`view-tabs-${index}`);
+        if (!testBody || !viewTabs) return;
+
+        const testBodyRect = testBody.getBoundingClientRect();
+        const testResultRect = testResult.getBoundingClientRect();
+
+        // Check if we've scrolled past the top of test-body but still within the test-result
+        if (testBodyRect.top < 0 && testResultRect.bottom > 60) {
+          newStickyTabs = viewTabs;
+          newStickyIndex = index;
+        }
+      });
+
+      // Handle transition between sticky states
+      if (newStickyIndex !== lastStickyIndex) {
+        // Remove sticky from previous
+        if (lastStickyIndex !== null) {
+          const prevTabs = document.getElementById(`view-tabs-${lastStickyIndex}`);
+          const prevPlaceholder = document.getElementById(`view-tabs-placeholder-${lastStickyIndex}`);
+          if (prevTabs) {
+            prevTabs.classList.add('slide-up');
+            prevTabs.addEventListener('animationend', function handler() {
+              prevTabs.classList.remove('sticky', 'slide-up');
+              prevTabs.removeEventListener('animationend', handler);
+            }, { once: true });
+          }
+          if (prevPlaceholder) {
+            prevPlaceholder.classList.remove('visible');
+          }
+        }
+
+        // Add sticky to new
+        if (newStickyIndex !== null) {
+          const newTabs = document.getElementById(`view-tabs-${newStickyIndex}`);
+          const newPlaceholder = document.getElementById(`view-tabs-placeholder-${newStickyIndex}`);
+          if (newTabs) {
+            newTabs.classList.remove('slide-up');
+            newTabs.classList.add('sticky');
+          }
+          if (newPlaceholder) {
+            newPlaceholder.classList.add('visible');
+          }
+        }
+
+        lastStickyIndex = newStickyIndex;
+      }
+
+      currentStickyTabs = newStickyTabs;
+    }
+
+    // Clear sticky state when test is collapsed
+    function clearStickyState(index) {
+      if (lastStickyIndex === index) {
+        const tabs = document.getElementById(`view-tabs-${index}`);
+        const placeholder = document.getElementById(`view-tabs-placeholder-${index}`);
+        if (tabs) {
+          tabs.classList.remove('sticky', 'slide-up');
+        }
+        if (placeholder) {
+          placeholder.classList.remove('visible');
+        }
+        lastStickyIndex = null;
+        currentStickyTabs = null;
+      }
+    }
+
     // Auto-expand failed tests on load
     testResults.forEach((test, index) => {
       if (test.status === 'failed') {
@@ -794,6 +942,7 @@
 
     // Start
     init();
+    setupStickyViewTabs();
   </script>
 </body>
 </html>
