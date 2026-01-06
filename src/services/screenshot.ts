@@ -125,6 +125,77 @@ export class ScreenshotService {
   }
 
   /**
+   * Disable CSS animations and transitions for consistent screenshots
+   * Injects a style tag that forces all animations/transitions to complete immediately
+   * This prevents visual differences caused by animation timing variations
+   */
+  private async disableAnimations(page: Page): Promise<void> {
+    await page.addStyleTag({
+      content: `
+        *, *::before, *::after {
+          animation-duration: 0s !important;
+          animation-delay: 0s !important;
+          transition-duration: 0s !important;
+          transition-delay: 0s !important;
+        }
+      `
+    });
+  }
+
+  /**
+   * Force load all lazy-loaded background images and img elements
+   * Bypasses Intersection Observer by directly setting attributes from data attributes
+   * This ensures all lazy content is visible before taking screenshots
+   */
+  private async forceLazyBackgroundImages(page: Page): Promise<void> {
+    await page.evaluate(`(() => {
+      // Force load background images from data-bg attributes (common lazy loading pattern)
+      const lazyBgElements = document.querySelectorAll('[data-bg]');
+      lazyBgElements.forEach(el => {
+        const bgUrl = el.getAttribute('data-bg');
+        if (bgUrl) {
+          // Build full URL if relative path
+          const fullUrl = bgUrl.startsWith('/')
+            ? window.location.origin + bgUrl
+            : bgUrl;
+          el.style.backgroundImage = 'url("' + fullUrl + '")';
+          el.style.opacity = '1';
+          el.classList.add('hgm-lazy-loaded');
+        }
+      });
+
+      // Force load images from data-src attributes
+      const lazyImgElements = document.querySelectorAll('img[data-src]');
+      lazyImgElements.forEach(img => {
+        const src = img.getAttribute('data-src');
+        if (src) {
+          const fullSrc = src.startsWith('/')
+            ? window.location.origin + src
+            : src;
+          img.setAttribute('src', fullSrc);
+          img.style.opacity = '1';
+        }
+      });
+
+      // Also handle data-background-image variant
+      const dataBgImageElements = document.querySelectorAll('[data-background-image]');
+      dataBgImageElements.forEach(el => {
+        const bgUrl = el.getAttribute('data-background-image');
+        if (bgUrl) {
+          const fullUrl = bgUrl.startsWith('/')
+            ? window.location.origin + bgUrl
+            : bgUrl;
+          el.style.backgroundImage = 'url("' + fullUrl + '")';
+          el.style.opacity = '1';
+        }
+      });
+    })()`);
+
+    // Wait for background images to start loading
+    await page.waitForTimeout(300);
+  }
+
+  /**
    * Stabilize video elements for consistent screenshots
    * Pauses all HTML5 videos and seeks to the first frame (0 seconds)
    * This ensures screenshots capture the same frame regardless of timing variations
@@ -302,6 +373,10 @@ export class ScreenshotService {
         await page.waitForTimeout(scenario.wait_time_ms);
       }
 
+      // Disable CSS animations/transitions for consistent screenshots
+      // Must be done early to prevent visual differences from animation timing
+      await this.disableAnimations(page);
+
       // Freeze all HTML5 videos at frame 0 for consistent screenshots
       await this.stabilizeVideos(page);
 
@@ -315,7 +390,11 @@ export class ScreenshotService {
 
       // Handle lazy loading for full-page screenshots
       if (viewport.full_page) {
-        // Scroll through page to trigger lazy loading
+        // Force load all lazy background images immediately
+        // This bypasses Intersection Observer by directly setting attributes
+        await this.forceLazyBackgroundImages(page);
+
+        // Scroll through page to trigger any remaining lazy loading
         await this.triggerLazyLoading(page);
 
         // Wait for all images to finish loading

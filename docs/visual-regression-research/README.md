@@ -29,6 +29,8 @@ January 2025
 | [08-image-comparison-libraries.md](./08-image-comparison-libraries.md) | Pixelmatch, ODiff, Looks-Same, Resemble.js comparison |
 | [09-odiff-integration-guide.md](./09-odiff-integration-guide.md) | Step-by-step guide to replace Pixelmatch with ODiff |
 | [10-custom-report-builder.md](./10-custom-report-builder.md) | Custom HTML report with slider comparison |
+| [11-video-element-handling.md](./11-video-element-handling.md) | Handling HTML5 videos and YouTube embeds in screenshots |
+| [12-animation-lazy-loading-handling.md](./12-animation-lazy-loading-handling.md) | Handling CSS animations and lazy-loaded background images |
 
 ## Quick Summary
 
