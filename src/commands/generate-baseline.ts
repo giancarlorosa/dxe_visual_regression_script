@@ -175,14 +175,14 @@ export async function generateBaseline(options: GenerateBaselineOptions): Promis
     let failed = 0;
     const startTime = Date.now();
 
-    // Progress callback
+    // Progress callback - shows scenario info for debugging hangs
     const onProgress = (
       current: number,
       total: number,
       scenario: Scenario,
       viewport: Viewport
     ) => {
-      spinner.text = `Capturing ${current}/${total}: ${scenario.title} @ ${viewport.label}`;
+      spinner.text = `Capturing ${current}/${total}: ${scenario.title} @ ${viewport.label}\n  → ${scenario.url}`;
     };
 
     spinner.start(`Capturing 0/${totalScreenshots}...`);

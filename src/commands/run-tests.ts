@@ -192,11 +192,20 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
       taskIndex: 0,
     };
 
-    // Helper to update spinner
-    const updateSpinner = () => {
+    // Helper to update spinner with optional scenario info for debugging
+    const updateSpinner = (currentScenario?: Scenario, currentViewport?: Viewport) => {
       const passedText = chalk.green(`Passed: ${counters.passed}`);
       const failedText = counters.failed > 0 ? chalk.red(`Failed: ${counters.failed}`) : `Failed: ${counters.failed}`;
-      spinner.text = `Testing: ${counters.completed}/${totalTests} | ${passedText} | ${failedText}`;
+
+      let statusLine = `Testing: ${counters.completed}/${totalTests} | ${passedText} | ${failedText}`;
+
+      // Show current scenario being processed for debugging hangs
+      if (currentScenario && currentViewport) {
+        statusLine += `\n  → ${currentScenario.title} @ ${currentViewport.label}`;
+        statusLine += `\n  → ${currentScenario.url}`;
+      }
+
+      spinner.text = statusLine;
     };
 
     // Worker function that captures and compares
@@ -207,6 +216,9 @@ export async function runTests(options: RunTestsOptions): Promise<void> {
 
         const task = tasks[taskIdx];
         let testResult: TestResult;
+
+        // Update spinner to show current scenario being processed (helps debug hangs)
+        updateSpinner(task.scenario, task.viewport);
 
         try {
           // Capture screenshot

@@ -77,15 +77,38 @@ export class ScreenshotService {
 
   /**
    * Scroll through entire page to trigger lazy loading
+   * Protected with timeout and max height to prevent infinite scroll hangs
    */
   private async triggerLazyLoading(page: Page): Promise<void> {
+    const maxScrollTime = 30000;  // 30 second maximum timeout
+    const maxScrollHeight = 50000; // Cap at 50,000px to avoid infinite scroll pages
+
     await page.evaluate(`(async () => {
       await new Promise((resolve) => {
         let totalHeight = 0;
         const distance = 300;
         const scrollDelay = 100;
+        const startTime = Date.now();
+        const maxTime = ${maxScrollTime};
+        const maxHeight = ${maxScrollHeight};
 
         const timer = setInterval(() => {
+          // Timeout check - prevent infinite hangs
+          if (Date.now() - startTime > maxTime) {
+            clearInterval(timer);
+            window.scrollTo(0, 0);
+            resolve();
+            return;
+          }
+
+          // Max height check - prevents infinite scroll pages from hanging
+          if (totalHeight >= maxHeight) {
+            clearInterval(timer);
+            window.scrollTo(0, 0);
+            resolve();
+            return;
+          }
+
           window.scrollBy(0, distance);
           totalHeight += distance;
 
@@ -101,11 +124,16 @@ export class ScreenshotService {
 
   /**
    * Wait for all images to finish loading
+   * Protected with timeout to prevent hangs on broken/slow image URLs
    */
   private async waitForAllImages(page: Page): Promise<void> {
+    const imageTimeout = 10000; // 10 seconds max for all images
+
     await page.evaluate(`(async () => {
       const images = Array.from(document.querySelectorAll('img'));
-      await Promise.all(
+      const timeout = new Promise(resolve => setTimeout(resolve, ${imageTimeout}));
+
+      const imagePromises = Promise.all(
         images.map((img) => {
           if (img.complete) return Promise.resolve();
           return new Promise((resolve) => {
@@ -114,6 +142,9 @@ export class ScreenshotService {
           });
         })
       );
+
+      // Race between all images loading and timeout - prevents indefinite hangs
+      await Promise.race([imagePromises, timeout]);
     })()`);
   }
 
