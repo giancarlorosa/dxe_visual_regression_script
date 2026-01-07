@@ -9,7 +9,8 @@
   "scripts": {
     "build": "tsc && mkdir -p dist/report && cp src/report/template.html dist/report/",
     "dev": "tsc --watch",
-    "clean": "rm -rf dist",
+    "clean:dist": "rm -rf dist",
+    "clean": "node dist/cli.js clean",
     "baseline": "node dist/cli.js generate-baseline",
     "baseline:failed": "node dist/cli.js generate-baseline --failed",
     "baseline:headed": "node dist/cli.js generate-baseline --headed",

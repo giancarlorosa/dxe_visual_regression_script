@@ -8,6 +8,7 @@ import { Command } from 'commander';
 import { testConnection } from './commands/test-connection';
 import { generateBaseline } from './commands/generate-baseline';
 import { runTests } from './commands/run-tests';
+import { cleanData } from './commands/clean';
 import { createDefaultConfig, configExists, getConfigPath } from './config/loader';
 import chalk from 'chalk';
 
@@ -88,6 +89,14 @@ program
       console.log(chalk.yellow('No report found. Run tests first: npm run test'));
     }
   });
+
+// Clean Command - Remove all generated data
+program
+  .command('clean')
+  .description('Remove all generated data (baselines, screenshots, diffs, reports, failed tests)')
+  .option('-c, --config <path>', 'Path to configuration file')
+  .option('-y, --yes', 'Skip confirmation prompt')
+  .action(cleanData);
 
 // Init Command - Create default config
 program
