@@ -10,7 +10,7 @@ import ora from 'ora';
 import { loadConfig } from '../config/loader';
 import { ApiService } from '../services/api';
 import { ScreenshotService } from '../services/screenshot';
-import { loadFailedTests, clearFailedTests } from '../services/failed-tracker';
+import { loadFailedTests, clearFailedTests, saveFailedTests, FailedTest } from '../services/failed-tracker';
 import { replaceDomain } from '../utils/url';
 import { Scenario, Viewport } from '../types';
 
@@ -187,6 +187,8 @@ export async function generateBaseline(options: GenerateBaselineOptions): Promis
 
     spinner.start(`Capturing 0/${totalScreenshots}...`);
 
+    let failedTests: FailedTest[] = [];
+
     try {
       // Capture all screenshots
       const results = await screenshotService.captureAll(
@@ -196,8 +198,14 @@ export async function generateBaseline(options: GenerateBaselineOptions): Promis
         onProgress
       );
 
-      captured = results.size;
-      failed = totalScreenshots - captured;
+      captured = results.successes.size;
+      failed = results.failures.length;
+
+      // Convert failures to FailedTest format
+      failedTests = results.failures.map(f => ({
+        scenarioId: f.scenarioId,
+        viewport: f.viewport,
+      }));
 
       spinner.succeed(`Captured ${captured}/${totalScreenshots} screenshots`);
     } catch (error) {
@@ -223,10 +231,13 @@ export async function generateBaseline(options: GenerateBaselineOptions): Promis
     console.log(`  ${chalk.cyan('Output:')} ${config.baselineDir}`);
     console.log();
 
-    if (failed > 0) {
+    // Save or clear failed tests
+    if (failedTests.length > 0) {
+      saveFailedTests(failedTests);
       console.log(
-        chalk.yellow('Some screenshots failed to capture. Review the errors above.')
+        chalk.yellow(`Some screenshots failed to capture. ${failedTests.length} failure(s) saved.`)
       );
+      console.log(chalk.yellow('Run "npm run baseline:failed" to retry only the failed captures.'));
       process.exit(1);
     }
 

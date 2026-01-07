@@ -20,6 +20,13 @@ interface CaptureResult {
   path: string;
   index: number;
   error?: string;
+  scenarioId?: string;
+  viewport?: string;
+}
+
+export interface CaptureAllResult {
+  successes: Map<string, string>;
+  failures: { scenarioId: string; viewport: string; error: string }[];
 }
 
 export class ScreenshotService {
@@ -490,6 +497,8 @@ export class ScreenshotService {
           key,
           path: screenshotPath,
           index: task.index,
+          scenarioId: task.scenario.id,
+          viewport: task.viewport.machine_name,
         });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -501,6 +510,8 @@ export class ScreenshotService {
           path: '',
           index: task.index,
           error: errorMessage,
+          scenarioId: task.scenario.id,
+          viewport: task.viewport.machine_name,
         });
       }
 
@@ -520,8 +531,9 @@ export class ScreenshotService {
     viewports: Viewport[],
     outputDir: string,
     onProgress?: (current: number, total: number, scenario: Scenario, viewport: Viewport) => void
-  ): Promise<Map<string, string>> {
-    const results = new Map<string, string>();
+  ): Promise<CaptureAllResult> {
+    const successes = new Map<string, string>();
+    const failures: { scenarioId: string; viewport: string; error: string }[] = [];
     const viewportMap = new Map<string, Viewport>();
 
     // Build viewport lookup map
@@ -551,7 +563,7 @@ export class ScreenshotService {
     }
 
     if (tasks.length === 0) {
-      return results;
+      return { successes, failures };
     }
 
     // Use worker pool for parallel execution
@@ -572,11 +584,17 @@ export class ScreenshotService {
     // Collect results
     for (const result of captureResults) {
       if (!result.error && result.path) {
-        results.set(result.key, result.path);
+        successes.set(result.key, result.path);
+      } else if (result.error && result.scenarioId && result.viewport) {
+        failures.push({
+          scenarioId: result.scenarioId,
+          viewport: result.viewport,
+          error: result.error,
+        });
       }
     }
 
-    return results;
+    return { successes, failures };
   }
 
   /**
