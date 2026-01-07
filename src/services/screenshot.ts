@@ -394,8 +394,11 @@ export class ScreenshotService {
       page.setDefaultNavigationTimeout(this.config.playwright.navigationTimeout);
 
       // Navigate to the URL
+      // Use 'load' instead of 'networkidle' because production sites with analytics,
+      // tracking scripts, or chat widgets often have persistent connections that
+      // prevent networkidle from ever being reached
       await page.goto(scenario.url, {
-        waitUntil: 'networkidle',
+        waitUntil: 'load',
         timeout: this.config.playwright.navigationTimeout,
       });
 
